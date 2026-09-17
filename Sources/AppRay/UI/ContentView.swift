@@ -84,8 +84,15 @@ private struct LoadedView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
+            Button("Back", systemImage: "chevron.backward") {
+                model.reset()
+            }
+            .help("Close this app and analyse another (⇧⌘W)")
+        }
+        ToolbarItem(placement: .navigation) {
             AppIconView(url: app.info.url, size: 20)
         }
+        .sharedBackgroundVisibility(.hidden)
         ToolbarSpacer(.flexible)
         ToolbarItem {
             Button("Reveal in Finder", systemImage: "folder") {
