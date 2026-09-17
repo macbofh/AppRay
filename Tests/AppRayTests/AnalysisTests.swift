@@ -95,6 +95,28 @@ struct AnalysisTests {
             try AppAnalyzer.analyzeSynchronously(url: URL(fileURLWithPath: "/usr/bin/codesign"))
         }
     }
+
+    @Test("The quarantine attribute round-trips, and its absence reads as nil")
+    func quarantineAttribute() throws {
+        var url = FileManager.default.temporaryDirectory
+            .appending(path: "AppRayQuarantineTest-\(UUID().uuidString)")
+        try Data().write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(QuarantineReader.read(at: url) == nil)
+
+        let downloaded = Date(timeIntervalSinceReferenceDate: 700_000_000)
+        var values = URLResourceValues()
+        values.quarantineProperties = [
+            kLSQuarantineAgentNameKey as String: "AppRayTests",
+            kLSQuarantineTimeStampKey as String: downloaded,
+        ]
+        try url.setResourceValues(values)
+
+        let quarantine = try #require(QuarantineReader.read(at: url))
+        #expect(quarantine.agentName == "AppRayTests")
+        #expect(quarantine.timestamp == downloaded)
+    }
 }
 
 @Suite("Privilege catalog")

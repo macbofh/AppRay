@@ -34,6 +34,7 @@ private func makeApp(
             flags: 0
         ),
         trust: nil,
+        quarantine: nil,
         machO: .empty,
         components: [],
         findings: findings

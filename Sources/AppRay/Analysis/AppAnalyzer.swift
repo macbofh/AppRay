@@ -95,6 +95,7 @@ enum AppAnalyzer {
             info: info,
             signature: signature,
             trust: nil,
+            quarantine: QuarantineReader.read(at: url),
             machO: machO,
             components: BundleReader.components(in: layout),
             findings: PrivilegeCatalog.findings(info: info, signature: signature, machO: machO)
