@@ -33,6 +33,9 @@ struct AppRayApp: App {
         }
         .defaultSize(width: 1_000, height: 680)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About AppRay") { showAboutPanel() }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open App…") { model.chooseApplication() }
                     .keyboardShortcut("o")
@@ -61,5 +64,42 @@ struct AppRayApp: App {
                 .disabled(model.app?.signature.designatedRequirement == nil)
             }
         }
+    }
+
+    /// The standard About panel, with contributors (sorted by surname) shown
+    /// in the credits area. Each GitHub username links to that profile.
+    private func showAboutPanel() {
+        let contributors: [(name: String, github: String)] = [
+            ("Bastiaan de Beer", "bastiaandb"),
+            ("Ralf Deuze", "MacScully76"),
+            ("Sander Schram", "macbofh"),
+            ("Erik Stam", "erikstam"),
+            ("Rens Verhoeven", "renssies"),
+            ("Mike Vos", "vosmike"),
+        ]
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph,
+        ]
+
+        let credits = NSMutableAttributedString()
+        for (index, contributor) in contributors.enumerated() {
+            if index > 0 {
+                credits.append(NSAttributedString(string: "\n", attributes: textAttributes))
+            }
+            credits.append(NSAttributedString(string: "\(contributor.name) (", attributes: textAttributes))
+
+            var linkAttributes = textAttributes
+            linkAttributes[.link] = URL(string: "https://github.com/\(contributor.github)")!
+            credits.append(NSAttributedString(string: contributor.github, attributes: linkAttributes))
+
+            credits.append(NSAttributedString(string: ")", attributes: textAttributes))
+        }
+
+        NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }
