@@ -13,6 +13,13 @@ enum CodeSignatureReader {
     private static let runtimeFlag: UInt32 = 0x0001_0000
     private static let libraryValidationFlag: UInt32 = 0x0000_2000
 
+    // SecStaticCode.h's kSecCSRestrictSidebandData, which that header declares
+    // in an anonymous CF_ENUM that does not reach Swift. Without it validation
+    // ignores Finder information and resource forks attached to sealed files —
+    // the one kind of tampering `codesign --verify --strict` reports and the
+    // default flags do not.
+    private static let restrictSidebandData: UInt32 = 1 << 9
+
     static func read(at url: URL) -> CodeSignature {
         var staticCode: SecStaticCode?
         let createStatus = SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode)
@@ -163,7 +170,9 @@ enum CodeSignatureReader {
               let staticCode
         else { return .unsigned }
 
-        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        let flags = SecCSFlags(rawValue:
+            kSecCSCheckAllArchitectures | kSecCSStrictValidate | restrictSidebandData
+        )
         var errors: Unmanaged<CFError>?
         let status = SecStaticCodeCheckValidityWithErrors(staticCode, flags, nil, &errors)
         let detail = errors?.takeRetainedValue() as Error?
@@ -174,10 +183,126 @@ enum CodeSignatureReader {
         case errSecCSUnsigned:
             return .unsigned
         default:
-            // The CFError names the offending resource ("a sealed resource is
-            // missing or invalid"); the OSStatus message is the fallback.
-            return .invalid(detail?.localizedDescription ?? message(for: status))
+            // The OSStatus message is the sentence codesign prints ("a sealed
+            // resource is missing or invalid"). The CFError's own
+            // localizedDescription is only the number, so it is no use here —
+            // its value is the lists of offending files in its user info.
+            let reason = message(for: status)
+            return .invalid(
+                reason: reason.prefix(1).uppercased() + reason.dropFirst(),
+                tamper: TamperReport(
+                    findings: tamperFindings(from: detail, status: status, bundleURL: url)
+                )
+            )
         }
+    }
+
+    /// Every file the validation objected to, not just the first.
+    ///
+    /// `SecStaticCodeCheckValidityWithErrors` walks the whole bundle and
+    /// collects each problem into an array in the error's user info, keyed by
+    /// what went wrong. This is where `codesign -vvv` gets its "file added /
+    /// file modified / file missing" lines; reading the same dictionary keeps
+    /// AppRay's account as complete as codesign's without a subprocess.
+    private static func tamperFindings(
+        from error: Error?,
+        status: OSStatus,
+        bundleURL: URL
+    ) -> [TamperFinding] {
+        guard let info = (error as? NSError)?.userInfo else { return [] }
+
+        let bundle = resolvedPath(of: bundleURL)
+
+        func urls(_ key: CFString) -> [URL] {
+            (info[key as String] as? [URL]) ?? []
+        }
+
+        var findings: [TamperFinding] = []
+
+        findings += urls(kSecCFErrorResourceAltered).map {
+            TamperFinding(kind: .modified, path: path(of: $0, in: bundle), detail: facts(about: $0))
+        }
+        findings += urls(kSecCFErrorResourceAdded).map {
+            TamperFinding(kind: .added, path: path(of: $0, in: bundle), detail: facts(about: $0))
+        }
+        findings += urls(kSecCFErrorResourceMissing).map {
+            TamperFinding(kind: .missing, path: path(of: $0, in: bundle), detail: nil)
+        }
+        findings += (info[kSecCFErrorResourceSideband as String] as? [String] ?? []).map {
+            sidebandFinding(from: $0, in: bundle)
+        }
+
+        // A nested framework or helper that fails on its own is named here
+        // rather than in any of the lists above.
+        if let component = info[kSecCFErrorPath as String] as? URL {
+            findings.append(
+                TamperFinding(
+                    kind: .subcomponent,
+                    path: path(of: component, in: bundle),
+                    detail: message(for: status)
+                )
+            )
+        } else if status == errSecCSBadMainExecutable {
+            // Nothing named means the bundle's own executable is the one that
+            // stopped matching.
+            let executable = Bundle(url: bundleURL)?.executableURL
+            findings.append(
+                TamperFinding(
+                    kind: .executable,
+                    path: executable.map { path(of: $0, in: bundle) } ?? bundleURL.lastPathComponent,
+                    detail: nil
+                )
+            )
+        }
+
+        return findings
+    }
+
+    /// Sideband problems arrive as a sentence rather than a URL — "Disallowed
+    /// xattr com.apple.FinderInfo found on /path". Split it back apart, and
+    /// keep the whole sentence if that shape ever changes.
+    private static func sidebandFinding(from message: String, in bundlePath: String) -> TamperFinding {
+        guard let separator = message.range(of: " found on ") else {
+            return TamperFinding(kind: .sideband, path: "", detail: message)
+        }
+        return TamperFinding(
+            kind: .sideband,
+            path: path(
+                of: URL(fileURLWithPath: String(message[separator.upperBound...])),
+                in: bundlePath
+            ),
+            detail: String(message[..<separator.lowerBound])
+        )
+    }
+
+    /// The offending file's location the way an admin would type it, relative
+    /// to the bundle rather than to whichever directory the seal is written
+    /// against — so a macOS and an iOS bundle read the same way.
+    private static func path(of url: URL, in bundlePath: String) -> String {
+        let full = resolvedPath(of: url)
+        guard full.hasPrefix(bundlePath + "/") else { return url.relativePath }
+        return String(full.dropFirst(bundlePath.count + 1))
+    }
+
+    /// Both sides of that comparison have to spell the same file the same way,
+    /// and a URL that points at a directory carries a trailing slash that would
+    /// stop the prefix from ever matching.
+    private static func resolvedPath(of url: URL) -> String {
+        let path = url.resolvingSymlinksInPath().path(percentEncoded: false)
+        return path.hasSuffix("/") ? String(path.dropLast()) : path
+    }
+
+    /// Size and last-modified date, for a file that is still there. The API
+    /// says a file changed; this says how big it is now and when it happened,
+    /// which is what an admin chases next.
+    private static func facts(about url: URL) -> String? {
+        guard let values = try? url.resourceValues(
+            forKeys: [.fileSizeKey, .contentModificationDateKey]
+        ), let size = values.fileSize else { return nil }
+
+        let bytes = ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+        guard let modified = values.contentModificationDate else { return bytes }
+        return "\(bytes), modified \(modified.formatted(date: .abbreviated, time: .shortened))"
     }
 
     private static func hexString(from data: Data?) -> String? {

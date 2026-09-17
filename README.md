@@ -27,7 +27,7 @@ shows you what it is doing.
 | --- | --- |
 | **Overview** | Icon, name, version, bundle ID, team ID, Gatekeeper verdict, architectures, SDK, URL schemes — and the two strings MDM targets the app by |
 | **Privileges** | Every privacy-relevant capability found, grouped by how strong the evidence is, with the literal `Info.plist` key or entitlement that triggered it |
-| **Signature** | Designated requirement, CDHash, signature verification, certificate validity, notarization, certificate chain, full entitlements tree, linked frameworks |
+| **Signature** | Designated requirement, CDHash, signature verification and what changed since signing, certificate validity, notarization, certificate chain, full entitlements tree, linked frameworks |
 | **Components** | Privileged helpers, login items, XPC services, system extensions and plug-ins, each with its own team ID and requirement |
 
 Every value copies to the clipboard on click.
@@ -37,7 +37,11 @@ Every value copies to the clipboard on click.
 The Signature tab answers whether the app will actually run, and keep running:
 
 - **Signature** — verified against every sealed resource in the bundle, strictly,
-  the way Gatekeeper does it. A bundle someone dropped a file into fails here.
+  the way `codesign --verify --strict` does it. A bundle someone dropped a file
+  into fails here — and the app then names every file that changed rather than
+  stopping at the verdict: modified, added, missing, and sealed files carrying
+  Finder information or a resource fork. One click copies the lot as a
+  plain-text report to put in a ticket or send to the vendor.
 - **Signing certificate** — the full validity window and how many days are left,
   with a warning from 60 days out.
 - **Secure timestamp** — present or not.

@@ -157,8 +157,9 @@ struct SignatureVerificationTests {
 
         let validity = CodeSignatureReader.validate(at: copy)
         #expect(validity != .valid)
-        if case .invalid(let reason) = validity {
+        if case .invalid(let reason, let tamper) = validity {
             #expect(!reason.isEmpty)
+            #expect(tamper.findings.contains { $0.kind == .added })
         } else {
             Issue.record("expected .invalid, got \(validity)")
         }

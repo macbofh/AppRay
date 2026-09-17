@@ -78,8 +78,10 @@ struct CertificateInfo: Hashable, Sendable, Identifiable {
 /// Whether the signature still matches what is on disk.
 enum SignatureValidity: Hashable, Sendable {
     case valid
-    /// The signature is broken, or the bundle was modified after signing.
-    case invalid(String)
+    /// The signature is broken, or the bundle was modified after signing. The
+    /// report names every file that no longer matches, so the failure is an
+    /// explanation rather than a dead end.
+    case invalid(reason: String, tamper: TamperReport)
     case unsigned
 
     var isValid: Bool { self == .valid }
