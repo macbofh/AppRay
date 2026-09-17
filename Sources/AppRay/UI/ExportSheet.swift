@@ -107,6 +107,12 @@ struct ExportSheet: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 8)
 
+            if let caveat = channel.caveat(for: app.info.platform) {
+                PlatformNotice(text: caveat)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+
             if !omissions.isEmpty {
                 OmissionNotice(omissions: omissions)
                     .padding(.horizontal, 12)
@@ -238,6 +244,22 @@ private struct DecisionRow: View {
             options.append(.allowStandardUser)
         }
         return options
+    }
+}
+
+/// A limit that applies to the whole output rather than to one service. The
+/// omissions below answer "what did you drop"; this answers "will any of this
+/// reach the device at all".
+private struct PlatformNotice: View {
+    var text: String
+
+    var body: some View {
+        Label(text, systemImage: "iphone")
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(.orange.opacity(0.12), in: .rect(cornerRadius: 8))
     }
 }
 

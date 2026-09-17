@@ -27,7 +27,7 @@ struct PrivilegesView: View {
         .listStyle(.inset)
         .inspector(isPresented: .constant(model.selectedFinding != nil)) {
             if let finding = app.findings.first(where: { $0.id == model.selectedFinding }) {
-                PrivilegeDetail(finding: finding)
+                PrivilegeDetail(finding: finding, platform: app.info.platform)
                     .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
             }
         }
@@ -99,6 +99,7 @@ struct ChannelBadges: View {
 
 private struct PrivilegeDetail: View {
     var finding: PrivilegeFinding
+    var platform: BundlePlatform
 
     var body: some View {
         ScrollView {
@@ -121,6 +122,15 @@ private struct PrivilegeDetail: View {
                         .font(.callout)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let caveat = platform.manageabilityCaveat {
+                        Divider()
+                        Label(caveat, systemImage: "iphone")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
                     if finding.service.isPPPCDeprecatedInMacOS27 {
                         Divider()

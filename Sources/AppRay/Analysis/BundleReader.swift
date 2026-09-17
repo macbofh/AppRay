@@ -3,9 +3,8 @@ import Foundation
 
 /// Reads `Info.plist` and walks the bundle for nested executables.
 enum BundleReader {
-    static func readInfo(at url: URL) throws -> BundleInfo {
-        let plistURL = url.appending(path: "Contents/Info.plist")
-        let data = try Data(contentsOf: plistURL)
+    static func readInfo(in layout: BundleLayout) throws -> BundleInfo {
+        let data = try Data(contentsOf: layout.infoPlistURL)
         let raw = try PropertyListSerialization.propertyList(from: data, format: nil)
         let info = PlistValue.dictionary(fromPropertyList: raw)
 
@@ -13,13 +12,16 @@ enum BundleReader {
         let bundleName = info["CFBundleName"]?.stringValue
 
         return BundleInfo(
-            url: url,
-            name: displayName ?? bundleName ?? url.deletingPathExtension().lastPathComponent,
+            layout: layout,
+            name: displayName ?? bundleName
+                ?? layout.bundleURL.deletingPathExtension().lastPathComponent,
             displayName: displayName,
             bundleIdentifier: info["CFBundleIdentifier"]?.stringValue,
             shortVersion: info["CFBundleShortVersionString"]?.stringValue,
             buildVersion: info["CFBundleVersion"]?.stringValue,
-            minimumSystemVersion: info["LSMinimumSystemVersion"]?.stringValue,
+            // macOS spells this LSMinimumSystemVersion, iOS MinimumOSVersion.
+            minimumSystemVersion: info["LSMinimumSystemVersion"]?.stringValue
+                ?? info["MinimumOSVersion"]?.stringValue,
             applicationCategory: info["LSApplicationCategoryType"]?.stringValue,
             executableName: info["CFBundleExecutable"]?.stringValue,
             copyright: info["NSHumanReadableCopyright"]?.stringValue,
@@ -31,7 +33,7 @@ enum BundleReader {
 
     static func executableURL(for info: BundleInfo) -> URL? {
         guard let executableName = info.executableName else { return nil }
-        let url = info.url.appending(path: "Contents/MacOS").appending(path: executableName)
+        let url = info.layout.executableDirectoryURL.appending(path: executableName)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -41,21 +43,10 @@ enum BundleReader {
 
     /// Nested executables that carry privileges of their own. Each of these can
     /// need its own PPPC entry, which is exactly what admins forget.
-    static func components(in bundleURL: URL) -> [BundleComponent] {
-        let contents = bundleURL.appending(path: "Contents")
-        let locations: [(String, BundleComponent.Kind)] = [
-            ("Library/LaunchServices", .privilegedHelper),
-            ("Library/LoginItems", .loginItem),
-            ("Library/SystemExtensions", .systemExtension),
-            ("XPCServices", .xpcService),
-            ("PlugIns", .plugIn),
-            ("Helpers", .helperApp),
-            ("Frameworks", .helperApp),
-        ]
-
-        return locations.flatMap { path, kind in
+    static func components(in layout: BundleLayout) -> [BundleComponent] {
+        locations(for: layout.platform).flatMap { path, kind in
             components(
-                in: contents.appending(path: path),
+                in: layout.contentsURL.appending(path: path),
                 kind: kind,
                 // Frameworks are scanned only for the helper apps some vendors
                 // hide inside them (Chrome, Electron); the frameworks
@@ -64,6 +55,35 @@ enum BundleReader {
             )
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Where nested executables sit, relative to the directory that holds
+    /// `Info.plist`. The two platforms barely overlap.
+    private static func locations(
+        for platform: BundlePlatform
+    ) -> [(String, BundleComponent.Kind)] {
+        switch platform {
+        case .macOS:
+            [
+                ("Library/LaunchServices", .privilegedHelper),
+                ("Library/LoginItems", .loginItem),
+                ("Library/SystemExtensions", .systemExtension),
+                ("XPCServices", .xpcService),
+                ("PlugIns", .plugIn),
+                ("Helpers", .helperApp),
+                ("Frameworks", .helperApp),
+            ]
+        case .iOS:
+            // An iOS app has no privileged helpers or login items. Its
+            // extensions live in PlugIns, or in Extensions on newer bundles,
+            // and an embedded watch app in Watch.
+            [
+                ("PlugIns", .appExtension),
+                ("Extensions", .appExtension),
+                ("XPCServices", .xpcService),
+                ("Watch", .watchApp),
+            ]
+        }
     }
 
     private static func components(
@@ -105,7 +125,9 @@ enum BundleReader {
 
     private static func component(at url: URL, kind: BundleComponent.Kind) -> BundleComponent {
         let signature = CodeSignatureReader.briefSignature(at: url)
-        let nestedInfo = try? readInfo(at: url)
+        // A nested bundle has its own shape, which is usually but not always
+        // the enclosing app's.
+        let nestedInfo = BundleLayout.resolve(droppedURL: url).flatMap { try? readInfo(in: $0) }
         return BundleComponent(
             url: url,
             kind: kind,

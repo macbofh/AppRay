@@ -18,12 +18,9 @@ struct OverviewView: View {
                     CopyableRow(label: "Version", value: app.info.versionSummary)
                 }
 
-                DetailSection(
-                    title: "Bundle",
-                    footnote: app.machO.architectures.isEmpty
-                        ? "The main executable could not be read."
-                        : nil
-                ) {
+                DetailSection(title: "Bundle", footnote: bundleFootnote) {
+                    CopyableRow(label: "Platform", value: app.info.platform.label)
+                    Divider()
                     CopyableRow(label: "Path", value: app.info.url.path)
                     Divider()
                     CopyableRow(label: "Executable", value: app.info.executableName)
@@ -54,13 +51,7 @@ struct OverviewView: View {
                     }
                 }
 
-                DetailSection(
-                    title: "Ready for MDM",
-                    footnote: """
-                    These two strings are what a PPPC profile and a DDM declaration \
-                    target the app by. Everything else in the export is derived from them.
-                    """
-                ) {
+                DetailSection(title: "Ready for MDM", footnote: mdmFootnote) {
                     CopyableRow(
                         label: "Designated requirement",
                         value: app.signature.designatedRequirement,
@@ -69,16 +60,48 @@ struct OverviewView: View {
                     )
                     Divider()
                     CopyableRow(
-                        label: "DDM composed identifier",
+                        label: app.info.platform == .macOS
+                            ? "DDM composed identifier"
+                            : "DDM app identifier",
                         value: app.ddmComposedIdentifier,
                         isMonospaced: true,
-                        placeholder: "Needs both a bundle identifier and a signature"
+                        placeholder: app.info.platform == .macOS
+                            ? "Needs both a bundle identifier and a signature"
+                            : "Needs a bundle identifier"
                     )
                 }
             }
             .padding(24)
             .frame(maxWidth: 780, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The wrapper note outranks the missing-executable one: it says the path
+    /// above is not the bundle these figures came from.
+    private var bundleFootnote: String? {
+        if app.info.layout.isWrapped {
+            return """
+            An iOS app inside a wrapper bundle. Everything here was read from \
+            \(app.info.layout.bundleURL.lastPathComponent) inside it.
+            """
+        }
+        return app.machO.architectures.isEmpty ? "The main executable could not be read." : nil
+    }
+
+    private var mdmFootnote: String {
+        switch app.info.platform {
+        case .macOS:
+            """
+            These two strings are what a PPPC profile and a DDM declaration \
+            target the app by. Everything else in the export is derived from them.
+            """
+        case .iOS:
+            """
+            iOS matches an app by its bundle identifier alone. The designated requirement \
+            is read from the bundle and shown here, but no iOS payload uses it — and there \
+            is no PPPC payload on iOS at all.
+            """
         }
     }
 
@@ -119,19 +142,25 @@ struct OverviewView: View {
             Badge(text: team, symbolName: "person.badge.key", tone: .neutral)
         }
 
-        switch app.trust?.gatekeeper.notarization {
-        case .notarized:
-            Badge(text: "Notarized", symbolName: "checkmark.seal", tone: .positive)
-        case .notNotarized:
-            Badge(text: "Not notarized", symbolName: "exclamationmark.seal", tone: .critical)
-        case .appStore:
-            Badge(text: "Mac App Store", symbolName: "checkmark.seal", tone: .positive)
-        case .appleSystem:
-            Badge(text: "Apple system software", symbolName: "apple.logo", tone: .neutral)
-        case .unknown:
-            Badge(text: "Notarization unknown", symbolName: "questionmark.circle", tone: .caution)
-        case nil:
-            Badge(text: "Verifying…", symbolName: "hourglass", tone: .neutral)
+        // An iOS app says so first, and says nothing about notarization, which
+        // is a macOS process it has never been through.
+        if app.info.platform == .iOS {
+            Badge(text: app.info.platform.label, symbolName: "iphone", tone: .neutral)
+        } else {
+            switch app.trust?.gatekeeper.notarization {
+            case .notarized:
+                Badge(text: "Notarized", symbolName: "checkmark.seal", tone: .positive)
+            case .notNotarized:
+                Badge(text: "Not notarized", symbolName: "exclamationmark.seal", tone: .critical)
+            case .appStore:
+                Badge(text: "Mac App Store", symbolName: "checkmark.seal", tone: .positive)
+            case .appleSystem:
+                Badge(text: "Apple system software", symbolName: "apple.logo", tone: .neutral)
+            case .unknown:
+                Badge(text: "Notarization unknown", symbolName: "questionmark.circle", tone: .caution)
+            case nil:
+                Badge(text: "Verifying…", symbolName: "hourglass", tone: .neutral)
+            }
         }
 
         certificateBadge

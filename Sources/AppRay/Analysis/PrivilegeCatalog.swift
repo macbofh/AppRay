@@ -35,6 +35,22 @@ enum PrivilegeCatalog {
         "NSNetworkVolumesUsageDescription": .systemPolicyNetworkVolumes,
         "NSRemovableVolumesUsageDescription": .systemPolicyRemovableVolumes,
         "NSFileProviderPresenceUsageDescription": .fileProviderPresence,
+
+        // iOS and iPadOS only. macOS has no equivalent subject and no MDM
+        // channel carries any of them, so these can only ever be reported —
+        // which is still better than an analysis that pretends they are absent.
+        "NSAlarmKitUsageDescription": .alarmKit,
+        "NSFaceIDUsageDescription": .faceID,
+        "NSFocusStatusUsageDescription": .focusStatus,
+        "NSHealthShareUsageDescription": .health,
+        "NSHealthUpdateUsageDescription": .health,
+        "NSHealthClinicalHealthRecordsShareUsageDescription": .health,
+        "NSHomeKitUsageDescription": .homeKit,
+        "NSIdentityUsageDescription": .identity,
+        "NSMotionUsageDescription": .motion,
+        "NSSiriUsageDescription": .siri,
+        "NSUserNotificationsUsageDescription": .userNotifications,
+        "NSUserTrackingUsageDescription": .userTracking,
     ]
 
     private static let entitlementKeys: [String: PrivilegeService] = [
@@ -132,9 +148,14 @@ enum PrivilegeCatalog {
             )
         }
 
-        for service in judgementCalls where confidenceByService[service] == nil {
-            confidenceByService[service] = .manual
-            evidenceByService[service] = []
+        // The judgement calls are macOS TCC subjects: iOS has no Accessibility,
+        // Full Disk Access, Input Monitoring or Send Keystrokes to decide
+        // about, so an iOS bundle is never asked.
+        if info.platform == .macOS {
+            for service in judgementCalls where confidenceByService[service] == nil {
+                confidenceByService[service] = .manual
+                evidenceByService[service] = []
+            }
         }
 
         return confidenceByService

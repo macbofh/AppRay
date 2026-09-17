@@ -1,8 +1,9 @@
 import Foundation
 
-/// Everything read out of `Contents/Info.plist`.
+/// Everything read out of the bundle's `Info.plist`.
 struct BundleInfo: Hashable, Sendable {
-    var url: URL
+    /// Where this bundle keeps its pieces, and which platform's shape it is.
+    var layout: BundleLayout
     var name: String
     var displayName: String?
     var bundleIdentifier: String?
@@ -15,6 +16,12 @@ struct BundleInfo: Hashable, Sendable {
     var isAgent: Bool
     var urlSchemes: [String]
     var raw: [String: PlistValue]
+
+    /// The bundle the user pointed at — the wrapper, when there is one, so
+    /// Finder and the icon still refer to something the user recognises.
+    var url: URL { layout.droppedURL }
+
+    var platform: BundlePlatform { layout.platform }
 
     /// "1.2.3 (456)", or whichever half is present.
     var versionSummary: String? {
@@ -239,6 +246,10 @@ struct BundleComponent: Hashable, Sendable, Identifiable {
         case systemExtension = "System extension"
         case plugIn = "Plug-in"
         case helperApp = "Helper app"
+        /// An iOS `.appex`: a share sheet, a widget, a keyboard.
+        case appExtension = "App extension"
+        /// A watchOS app embedded in an iPhone app.
+        case watchApp = "Watch app"
 
         var symbolName: String {
             switch self {
@@ -248,6 +259,8 @@ struct BundleComponent: Hashable, Sendable, Identifiable {
             case .systemExtension: "puzzlepiece.extension"
             case .plugIn: "square.stack.3d.up"
             case .helperApp: "app.badge"
+            case .appExtension: "puzzlepiece"
+            case .watchApp: "applewatch"
             }
         }
     }
@@ -341,14 +354,16 @@ struct AnalyzedApp: Hashable, Sendable, Identifiable {
     var gatekeeper: GatekeeperStatus? { trust?.gatekeeper }
     var signatureValidity: SignatureValidity? { trust?.signatureValidity }
 
-    /// The key a DDM `Privacy.PermissionDefaults` dictionary expects on macOS:
-    /// the bundle ID, a space, then the designated requirement in braces.
+    /// The key a DDM `Privacy.PermissionDefaults` dictionary expects.
     ///
-    /// Apple's example: `com.example.app {anchor apple generic}`.
+    /// Apple's schema spells out both forms. On macOS it is the bundle ID, a
+    /// space, then the designated requirement in braces — the example being
+    /// `com.example.app {anchor apple generic}`. On iOS it is the bundle ID on
+    /// its own, because iOS has no code requirement to match against.
     var ddmComposedIdentifier: String? {
-        guard let bundleIdentifier = info.bundleIdentifier,
-              let requirement = signature.designatedRequirement
-        else { return nil }
+        guard let bundleIdentifier = info.bundleIdentifier else { return nil }
+        guard info.platform == .macOS else { return bundleIdentifier }
+        guard let requirement = signature.designatedRequirement else { return nil }
         return "\(bundleIdentifier) {\(requirement)}"
     }
 

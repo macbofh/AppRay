@@ -75,7 +75,7 @@ final class InspectorModel {
 
                 // Verification takes seconds on a large bundle, so it lands
                 // afterwards and the badges fill themselves in.
-                let trust = await AppAnalyzer.assessTrust(url: resolved)
+                let trust = await AppAnalyzer.assessTrust(layout: app.info.layout)
                 guard case .loaded(var current) = phase, current.info.url == resolved else { return }
                 current.trust = trust
                 withAnimation(.smooth) { phase = .loaded(current) }
