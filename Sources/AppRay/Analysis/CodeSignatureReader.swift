@@ -13,13 +13,6 @@ enum CodeSignatureReader {
     private static let runtimeFlag: UInt32 = 0x0001_0000
     private static let libraryValidationFlag: UInt32 = 0x0000_2000
 
-    // SecStaticCode.h's kSecCSRestrictSidebandData, which that header declares
-    // in an anonymous CF_ENUM that does not reach Swift. Without it validation
-    // ignores Finder information and resource forks attached to sealed files —
-    // the one kind of tampering `codesign --verify --strict` reports and the
-    // default flags do not.
-    private static let restrictSidebandData: UInt32 = 1 << 9
-
     static func read(at url: URL) -> CodeSignature {
         var staticCode: SecStaticCode?
         let createStatus = SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode)
@@ -170,9 +163,7 @@ enum CodeSignatureReader {
               let staticCode
         else { return .unsigned }
 
-        let flags = SecCSFlags(rawValue:
-            kSecCSCheckAllArchitectures | kSecCSStrictValidate | restrictSidebandData
-        )
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
         var errors: Unmanaged<CFError>?
         let status = SecStaticCodeCheckValidityWithErrors(staticCode, flags, nil, &errors)
         let detail = errors?.takeRetainedValue() as Error?
@@ -219,8 +210,9 @@ enum CodeSignatureReader {
 
         var findings: [TamperFinding] = []
 
+        var manifests = ManifestCache()
         findings += urls(kSecCFErrorResourceAltered).map {
-            TamperFinding(kind: .modified, path: path(of: $0, in: bundle), detail: facts(about: $0))
+            modifiedFinding(for: $0, in: bundle, manifests: &manifests)
         }
         findings += urls(kSecCFErrorResourceAdded).map {
             TamperFinding(kind: .added, path: path(of: $0, in: bundle), detail: facts(about: $0))
@@ -228,10 +220,6 @@ enum CodeSignatureReader {
         findings += urls(kSecCFErrorResourceMissing).map {
             TamperFinding(kind: .missing, path: path(of: $0, in: bundle), detail: nil)
         }
-        findings += (info[kSecCFErrorResourceSideband as String] as? [String] ?? []).map {
-            sidebandFinding(from: $0, in: bundle)
-        }
-
         // A nested framework or helper that fails on its own is named here
         // rather than in any of the lists above.
         if let component = info[kSecCFErrorPath as String] as? URL {
@@ -258,21 +246,84 @@ enum CodeSignatureReader {
         return findings
     }
 
-    /// Sideband problems arrive as a sentence rather than a URL — "Disallowed
-    /// xattr com.apple.FinderInfo found on /path". Split it back apart, and
-    /// keep the whole sentence if that shape ever changes.
-    private static func sidebandFinding(from message: String, in bundlePath: String) -> TamperFinding {
-        guard let separator = message.range(of: " found on ") else {
-            return TamperFinding(kind: .sideband, path: "", detail: message)
-        }
-        return TamperFinding(
-            kind: .sideband,
-            path: path(
-                of: URL(fileURLWithPath: String(message[separator.upperBound...])),
-                in: bundlePath
-            ),
-            detail: String(message[..<separator.lowerBound])
+    /// A file that is still there but no longer hashes to what was sealed —
+    /// with the two hashes side by side, so the claim can be checked without
+    /// AppRay.
+    ///
+    /// Every URL the validation hands back carries the directory its own seal
+    /// was written against as its base, which is `layout.sealedResourcesRootURL`
+    /// for the bundle that sealed it — the app's own, or a nested component's.
+    /// Taking the manifest from there rather than from the bundle root keeps
+    /// this right for both bundle shapes, and right for nested code.
+    private static func modifiedFinding(
+        for url: URL,
+        in bundlePath: String,
+        manifests: inout ManifestCache
+    ) -> TamperFinding {
+        let finding = TamperFinding(
+            kind: .modified,
+            path: path(of: url, in: bundlePath),
+            detail: facts(about: url)
         )
+        // Where there is no hash to show, say which of the reasons it is
+        // rather than leaving the row looking incomplete.
+        func explaining(_ note: String) -> TamperFinding {
+            var copy = finding
+            copy.detail = [copy.detail, note].compactMap { $0 }.joined(separator: " — ")
+            return copy
+        }
+
+        guard let root = url.baseURL else { return finding }
+
+        // The manifest keys files by the same relative path the URL carries.
+        guard let manifest = manifests.manifest(sealedUnder: root) else {
+            return explaining("the sealed manifest could not be read, so there is nothing to compare against")
+        }
+        guard let seal = manifest[url.relativePath] else {
+            return explaining("the sealed manifest does not list this file")
+        }
+
+        switch seal {
+        case .nestedCode:
+            return explaining("sealed as nested code, by its own signature rather than by a hash of its bytes")
+        case .symlink(let target):
+            let current = try? FileManager.default.destinationOfSymbolicLink(
+                atPath: url.path(percentEncoded: false)
+            )
+            guard let current, current != target else {
+                return explaining("sealed as a symbolic link to \(target)")
+            }
+            return explaining("sealed as a symbolic link to \(target), now pointing at \(current)")
+        case .sha256, .sha1:
+            guard let algorithm = seal.algorithm,
+                  let sealed = seal.sealedDigest,
+                  let onDisk = seal.digestOnDisk(at: url)
+            else {
+                return explaining("the file could not be read, so its hash could not be taken")
+            }
+            var annotated = finding
+            annotated.digests = TamperFinding.Digests(
+                algorithm: algorithm, sealed: sealed, onDisk: onDisk
+            )
+            return annotated
+        }
+    }
+
+    /// One bundle can hold several sealed roots, and a manifest is worth
+    /// reading once rather than once per offending file.
+    private struct ManifestCache {
+        private var manifests: [URL: SealedResourceManifest?] = [:]
+
+        mutating func manifest(sealedUnder root: URL) -> SealedResourceManifest? {
+            if let known = manifests[root] { return known }
+            // The same place `layout.codeResourcesURL` points at, relative to
+            // the sealed-resources root rather than to the bundle.
+            let read = SealedResourceManifest.read(
+                at: root.appending(path: "_CodeSignature/CodeResources")
+            )
+            manifests[root] = read
+            return read
+        }
     }
 
     /// The offending file's location the way an admin would type it, relative

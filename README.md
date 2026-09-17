@@ -37,11 +37,12 @@ Every value copies to the clipboard on click.
 The Signature tab answers whether the app will actually run, and keep running:
 
 - **Signature** — verified against every sealed resource in the bundle, strictly,
-  the way `codesign --verify --strict` does it. A bundle someone dropped a file
-  into fails here — and the app then names every file that changed rather than
-  stopping at the verdict: modified, added, missing, and sealed files carrying
-  Finder information or a resource fork. One click copies the lot as a
-  plain-text report to put in a ticket or send to the vendor.
+  the way Gatekeeper does it. A bundle someone dropped a file into fails here —
+  and the app then names every file that changed rather than stopping at the
+  verdict: modified, added, missing, and nested code that fails on its own. A
+  modified file is shown with the hash the signature sealed beside the hash of
+  what is on disk now. One click copies the lot as a plain-text report to put in
+  a ticket or send to the vendor.
 - **Signing certificate** — the full validity window and how many days are left,
   with a warning from 60 days out.
 - **Secure timestamp** — present or not.

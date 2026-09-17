@@ -12,8 +12,6 @@ struct TamperFinding: Hashable, Sendable, Identifiable {
         case added
         /// Sealed, and no longer on disk.
         case missing
-        /// A sealed file carries Finder information or a resource fork.
-        case sideband
         /// Nested code — a framework, helper or extension — failing on its own.
         case subcomponent
         /// The bundle's own executable no longer matches its code directory.
@@ -24,7 +22,6 @@ struct TamperFinding: Hashable, Sendable, Identifiable {
             case .modified: "Modified since signing"
             case .added: "Added since signing"
             case .missing: "Missing since signing"
-            case .sideband: "Carrying attached data"
             case .subcomponent: "Nested code that fails on its own"
             case .executable: "Main executable altered"
             }
@@ -38,8 +35,6 @@ struct TamperFinding: Hashable, Sendable, Identifiable {
                 "Nothing in the signature covers these. They were put into the bundle after it was signed."
             case .missing:
                 "The signature seals these files and they are no longer on disk."
-            case .sideband:
-                "A sealed file carries Finder information or a resource fork. codesign refuses to sign a bundle in this state; `xattr -cr` clears it."
             case .subcomponent:
                 "A framework, helper or extension inside the bundle fails to verify against its own signature."
             case .executable:
@@ -52,7 +47,6 @@ struct TamperFinding: Hashable, Sendable, Identifiable {
             case .modified: "pencil.circle"
             case .added: "plus.circle"
             case .missing: "minus.circle"
-            case .sideband: "paperclip.circle"
             case .subcomponent: "shippingbox.circle"
             case .executable: "terminal"
             }
@@ -66,6 +60,22 @@ struct TamperFinding: Hashable, Sendable, Identifiable {
     /// How it differs, where that can be established. Not every kind leaves
     /// something behind to describe.
     var detail: String?
+    /// What the signature sealed against what is on disk now. Only a file
+    /// sealed by a hash of its bytes has one.
+    var digests: Digests?
+
+    /// The pair that settles an argument with a vendor: the hash in the
+    /// signature, and the hash of the file sitting in the bundle.
+    struct Digests: Hashable, Sendable {
+        var algorithm: String
+        var sealed: String
+        var onDisk: String
+
+        /// Enough of each to tell them apart at a glance, for a row that has
+        /// to fit next to a file path.
+        var shortSealed: String { String(sealed.prefix(16)) + "…" }
+        var shortOnDisk: String { String(onDisk.prefix(16)) + "…" }
+    }
 }
 
 /// What changed in a bundle after it was signed.
@@ -78,11 +88,6 @@ struct TamperReport: Hashable, Sendable {
     var findings: [TamperFinding]
 
     var isEmpty: Bool { findings.isEmpty }
-
-    /// Whether anything the signature actually seals has changed. Sideband data
-    /// alone fails `codesign --strict` but Gatekeeper still accepts it, so the
-    /// two cases do not carry the same consequence.
-    var breaksSeal: Bool { findings.contains { $0.kind != .sideband } }
 
     var findingsByKind: [(kind: TamperFinding.Kind, findings: [TamperFinding])] {
         TamperFinding.Kind.allCases
@@ -100,12 +105,17 @@ extension AnalyzedApp {
 
         var lines = ["AppRay tamper report", ""]
 
+        // A URL that points at a directory prints with a trailing slash, which
+        // reads like a typo in a ticket.
+        var bundlePath = info.url.path(percentEncoded: false)
+        if bundlePath.hasSuffix("/") { bundlePath.removeLast() }
+
         func fact(_ label: String, _ value: String?) {
             guard let value, !value.isEmpty else { return }
             lines.append(label.padding(toLength: 12, withPad: " ", startingAt: 0) + value)
         }
 
-        fact("Bundle", info.url.path(percentEncoded: false))
+        fact("Bundle", bundlePath)
         fact("Bundle ID", info.bundleIdentifier)
         fact("Version", info.versionSummary)
         fact("Signed by", signature.authority)
@@ -122,40 +132,39 @@ extension AnalyzedApp {
                 for finding in group.findings {
                     let detail = finding.detail.map { " (\($0))" } ?? ""
                     lines.append("  \(finding.path)\(detail)")
+                    // The full digests, not the shortened pair the row shows —
+                    // a report nobody can verify against is not worth sending.
+                    if let digests = finding.digests {
+                        let sealed = "sealed \(digests.algorithm)"
+                        lines.append("    " + sealed.padding(toLength: 15, withPad: " ", startingAt: 0) + digests.sealed)
+                        lines.append("    " + "on disk".padding(toLength: 15, withPad: " ", startingAt: 0) + digests.onDisk)
+                    }
                 }
             }
         }
 
-        lines += ["", "What this costs", ""]
-        if tamper.breaksSeal {
-            lines += [
-                """
-                Gatekeeper rejects this bundle. It will not open on a Mac that has not run \
-                it before, and spctl --assess reports the same failure.
-                """,
-                "",
-                """
-                The designated requirement and CDHash above were read from the signature, \
-                not recomputed from the files on disk. They still describe the app as its \
-                developer signed it, so an MDM profile built from them targets that app and \
-                not this copy.
-                """,
-            ]
-        } else {
-            lines.append(
-                """
-                Gatekeeper still accepts this bundle, but codesign --verify --strict rejects \
-                it and codesign refuses to sign a bundle in this state, so it cannot be \
-                re-signed or re-notarized until the attached data is removed.
-                """
-            )
-        }
+        lines += [
+            "",
+            "What this costs",
+            "",
+            """
+            Gatekeeper rejects this bundle. It will not open on a Mac that has not run \
+            it before, and spctl --assess reports the same failure.
+            """,
+            "",
+            """
+            The designated requirement and CDHash above were read from the signature, \
+            not recomputed from the files on disk. They still describe the app as its \
+            developer signed it, so an MDM profile built from them targets that app and \
+            not this copy.
+            """,
+        ]
 
         lines += [
             "",
             "Reproduce with",
             "",
-            "  codesign --verify --deep --strict -vvvvv \"\(info.url.path(percentEncoded: false))\"",
+            "  codesign --verify --deep --strict -vvvvv \"\(bundlePath)\"",
             "",
             "Paths are relative to the bundle. Read from Security.framework by AppRay.",
         ]

@@ -239,6 +239,23 @@ private struct TamperRow: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                // Shortened here so the pair fits beside a path; the copied
+                // report carries both hashes in full.
+                if let digests = finding.digests {
+                    Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 1) {
+                        GridRow {
+                            Text("Sealed \(digests.algorithm)")
+                            Text(digests.shortSealed).monospaced()
+                        }
+                        GridRow {
+                            Text("On disk")
+                            Text(digests.shortOnDisk).monospaced()
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
 
             Spacer(minLength: 8)
