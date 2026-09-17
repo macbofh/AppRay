@@ -38,7 +38,9 @@ struct SignatureView: View {
                     )
                 }
 
-                DetailSection(title: "Signature") {
+                ValiditySection(app: app)
+
+                DetailSection(title: "Signing details") {
                     CopyableRow(label: "Team identifier", value: app.signature.teamIdentifier)
                     Divider()
                     CopyableRow(label: "Signing identifier", value: app.signature.signingIdentifier)
@@ -52,54 +54,15 @@ struct SignatureView: View {
                         Text(app.signature.hasLibraryValidation ? "Enabled" : "Not enabled")
                             .foregroundStyle(app.signature.hasLibraryValidation ? .primary : .secondary)
                     }
-                    Divider()
-                    LabeledContent("Stapled notarization ticket") {
-                        if let gatekeeper = app.gatekeeper {
-                            Text(gatekeeper.hasStapledTicket ? "Present" : "Not stapled")
-                                .foregroundStyle(gatekeeper.hasStapledTicket ? .primary : .secondary)
-                        } else {
-                            ProgressView().controlSize(.small)
-                        }
-                    }
-                    if let signed = app.signature.signedDate {
-                        Divider()
-                        LabeledContent("Signed") {
-                            Text(signed.formatted(date: .abbreviated, time: .shortened))
-                        }
-                    }
-                }
-
-                DetailSection(
-                    title: "Gatekeeper",
-                    footnote: "A missing stapled ticket is not proof of anything — macOS can still check notarization online."
-                ) {
-                    LabeledContent("Assessment") {
-                        if let gatekeeperText {
-                            Text(gatekeeperText)
-                                .multilineTextAlignment(.trailing)
-                        } else {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("Running spctl…").foregroundStyle(.secondary)
-                            }
-                        }
-                    }
                 }
 
                 if !app.signature.certificates.isEmpty {
-                    DetailSection(title: "Certificate chain") {
+                    DetailSection(
+                        title: "Certificate chain",
+                        footnote: "Leaf first, then the intermediates and the root above it."
+                    ) {
                         ForEach(app.signature.certificates) { certificate in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(certificate.summary)
-                                    .font(.callout)
-                                    .textSelection(.enabled)
-                                if let expiry = certificate.expiryDate {
-                                    Text("Expires \(expiry.formatted(date: .abbreviated, time: .omitted))")
-                                        .font(.caption)
-                                        .foregroundStyle(expiry < .now ? .red : .secondary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            CertificateRow(certificate: certificate)
                             if certificate.id != app.signature.certificates.last?.id {
                                 Divider()
                             }
@@ -143,12 +106,4 @@ struct SignatureView: View {
         }
     }
 
-    private var gatekeeperText: String? {
-        switch app.gatekeeper?.verdict {
-        case .accepted(let source): "Accepted — \(source)"
-        case .rejected(let reason): "Rejected — \(reason)"
-        case .unknown(let detail): detail
-        case nil: nil
-        }
-    }
 }

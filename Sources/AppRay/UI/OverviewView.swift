@@ -119,21 +119,36 @@ struct OverviewView: View {
             Badge(text: team, symbolName: "person.badge.key", tone: .neutral)
         }
 
-        switch app.gatekeeper?.verdict {
-        case .accepted(let source):
-            Badge(text: source, symbolName: "checkmark.seal", tone: .positive)
-        case .rejected(let reason):
-            Badge(text: reason, symbolName: "xmark.seal", tone: .critical)
+        switch app.trust?.gatekeeper.notarization {
+        case .notarized:
+            Badge(text: "Notarized", symbolName: "checkmark.seal", tone: .positive)
+        case .notNotarized:
+            Badge(text: "Not notarized", symbolName: "exclamationmark.seal", tone: .critical)
+        case .appStore:
+            Badge(text: "Mac App Store", symbolName: "checkmark.seal", tone: .positive)
+        case .appleSystem:
+            Badge(text: "Apple system software", symbolName: "apple.logo", tone: .neutral)
         case .unknown:
-            Badge(text: "Gatekeeper unknown", symbolName: "questionmark.circle", tone: .caution)
+            Badge(text: "Notarization unknown", symbolName: "questionmark.circle", tone: .caution)
         case nil:
-            Badge(text: "Checking Gatekeeper…", symbolName: "hourglass", tone: .neutral)
+            Badge(text: "Verifying…", symbolName: "hourglass", tone: .neutral)
         }
 
-        if !app.signature.isSigned {
+        certificateBadge
+
+        switch app.trust?.signatureValidity {
+        case .invalid:
+            Badge(text: "Signature invalid", symbolName: "xmark.seal", tone: .critical)
+        case .unsigned:
             Badge(text: "Unsigned", symbolName: "exclamationmark.triangle", tone: .critical)
-        } else if app.signature.isAdHoc {
-            Badge(text: "Ad-hoc signed", symbolName: "exclamationmark.triangle", tone: .caution)
+        case .valid, nil:
+            // A valid signature is the expectation; no badge for it. The
+            // unsigned and ad-hoc cases below still deserve one.
+            if !app.signature.isSigned {
+                Badge(text: "Unsigned", symbolName: "exclamationmark.triangle", tone: .critical)
+            } else if app.signature.isAdHoc {
+                Badge(text: "Ad-hoc signed", symbolName: "exclamationmark.triangle", tone: .caution)
+            }
         }
 
         if app.signature.hasHardenedRuntime {
@@ -142,6 +157,38 @@ struct OverviewView: View {
 
         if app.info.isAgent {
             Badge(text: "Agent (no Dock icon)", symbolName: "eye.slash", tone: .neutral)
+        }
+    }
+
+    /// An expired certificate only breaks an app that was signed without a
+    /// secure timestamp, so the badge says which of the two situations it is.
+    @ViewBuilder
+    private var certificateBadge: some View {
+        if let certificate = app.signature.leafCertificate {
+            switch certificate.validity {
+            case .valid:
+                EmptyView()
+            case .expiringSoon(let days):
+                Badge(
+                    text: "Certificate expires in \(days) d",
+                    symbolName: "clock.badge.exclamationmark",
+                    tone: .caution
+                )
+            case .expired:
+                Badge(
+                    text: app.signature.hasSecureTimestamp
+                        ? "Certificate expired (timestamped)"
+                        : "Certificate expired",
+                    symbolName: app.signature.hasSecureTimestamp
+                        ? "clock.badge.checkmark"
+                        : "xmark.seal",
+                    tone: app.signature.hasSecureTimestamp ? .caution : .critical
+                )
+            case .notYetValid:
+                Badge(text: "Certificate not valid yet", symbolName: "clock", tone: .critical)
+            case .unknown:
+                EmptyView()
+            }
         }
     }
 }

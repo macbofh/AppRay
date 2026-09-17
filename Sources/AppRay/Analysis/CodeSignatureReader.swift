@@ -118,23 +118,66 @@ enum CodeSignatureReader {
         } ?? []
 
         return certificates.enumerated().map { index, certificate in
-            CertificateInfo(
+            let window = validityWindow(of: certificate)
+            return CertificateInfo(
                 id: index,
                 summary: SecCertificateCopySubjectSummary(certificate) as String?
                     ?? "Unnamed certificate",
-                expiryDate: expiryDate(of: certificate)
+                notBefore: window.notBefore,
+                expiryDate: window.notAfter
             )
         }
     }
 
-    private static func expiryDate(of certificate: SecCertificate) -> Date? {
-        let keys = [kSecOIDX509V1ValidityNotAfter] as CFArray
-        guard let values = SecCertificateCopyValues(certificate, keys, nil) as? [String: Any],
-              let entry = values[kSecOIDX509V1ValidityNotAfter as String] as? [String: Any],
-              let interval = (entry[kSecPropertyKeyValue as String] as? NSNumber)?.doubleValue
-        else { return nil }
+    private static func validityWindow(
+        of certificate: SecCertificate
+    ) -> (notBefore: Date?, notAfter: Date?) {
+        let keys = [kSecOIDX509V1ValidityNotBefore, kSecOIDX509V1ValidityNotAfter] as CFArray
+        guard let values = SecCertificateCopyValues(certificate, keys, nil) as? [String: Any]
+        else { return (nil, nil) }
+
         // Certificate validity values come back as seconds since the CF epoch.
-        return Date(timeIntervalSinceReferenceDate: interval)
+        func date(for oid: CFString) -> Date? {
+            guard let entry = values[oid as String] as? [String: Any],
+                  let interval = (entry[kSecPropertyKeyValue as String] as? NSNumber)?.doubleValue
+            else { return nil }
+            return Date(timeIntervalSinceReferenceDate: interval)
+        }
+
+        return (date(for: kSecOIDX509V1ValidityNotBefore), date(for: kSecOIDX509V1ValidityNotAfter))
+    }
+
+    /// Verifies the signature against what is actually on disk: every sealed
+    /// resource in the bundle, for every architecture.
+    ///
+    /// Strict validation is deliberate. Without `kSecCSStrictValidate` the
+    /// check tolerates files added to the bundle after signing, which is
+    /// exactly the tampering an admin wants to hear about — and which
+    /// Gatekeeper rejects anyway. This matches `codesign --verify --strict`.
+    ///
+    /// Slow on a large bundle — this is the expensive half of the analysis and
+    /// belongs on a background task.
+    static func validate(at url: URL) -> SignatureValidity {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode) == errSecSuccess,
+              let staticCode
+        else { return .unsigned }
+
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        var errors: Unmanaged<CFError>?
+        let status = SecStaticCodeCheckValidityWithErrors(staticCode, flags, nil, &errors)
+        let detail = errors?.takeRetainedValue() as Error?
+
+        switch status {
+        case errSecSuccess:
+            return .valid
+        case errSecCSUnsigned:
+            return .unsigned
+        default:
+            // The CFError names the offending resource ("a sealed resource is
+            // missing or invalid"); the OSStatus message is the fallback.
+            return .invalid(detail?.localizedDescription ?? message(for: status))
+        }
     }
 
     private static func hexString(from data: Data?) -> String? {

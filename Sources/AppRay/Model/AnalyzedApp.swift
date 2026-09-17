@@ -27,10 +27,62 @@ struct BundleInfo: Hashable, Sendable {
     }
 }
 
+/// Where a certificate sits in its validity window.
+enum CertificateValidity: Hashable, Sendable {
+    case valid(daysRemaining: Int)
+    /// Inside the window, but not for much longer.
+    case expiringSoon(daysRemaining: Int)
+    case expired(daysAgo: Int)
+    case notYetValid
+    case unknown
+
+    /// Days before expiry at which an admin should start caring.
+    static let warningWindow = 60
+
+    static func status(notBefore: Date?, notAfter: Date?, now: Date = .now) -> CertificateValidity {
+        guard let notAfter else { return .unknown }
+        if let notBefore, now < notBefore { return .notYetValid }
+
+        let days = Calendar.current.dateComponents([.day], from: now, to: notAfter).day ?? 0
+        if days < 0 { return .expired(daysAgo: -days) }
+        return days <= warningWindow ? .expiringSoon(daysRemaining: days) : .valid(daysRemaining: days)
+    }
+
+    var isExpired: Bool {
+        if case .expired = self { return true }
+        return false
+    }
+
+    var summary: String {
+        switch self {
+        case .valid(let days): "Valid, \(days) days remaining"
+        case .expiringSoon(let days): days == 1 ? "Expires tomorrow" : "Expires in \(days) days"
+        case .expired(let days): days == 1 ? "Expired yesterday" : "Expired \(days) days ago"
+        case .notYetValid: "Not valid yet"
+        case .unknown: "Validity dates unavailable"
+        }
+    }
+}
+
 struct CertificateInfo: Hashable, Sendable, Identifiable {
     var id: Int
     var summary: String
+    var notBefore: Date?
     var expiryDate: Date?
+
+    var validity: CertificateValidity {
+        CertificateValidity.status(notBefore: notBefore, notAfter: expiryDate)
+    }
+}
+
+/// Whether the signature still matches what is on disk.
+enum SignatureValidity: Hashable, Sendable {
+    case valid
+    /// The signature is broken, or the bundle was modified after signing.
+    case invalid(String)
+    case unsigned
+
+    var isValid: Bool { self == .valid }
 }
 
 /// The result of reading the code signature through Security.framework.
@@ -57,6 +109,24 @@ struct CodeSignature: Hashable, Sendable {
     /// The signing authority, e.g. "Developer ID Application: Example (ABCDE12345)".
     var authority: String? { certificates.first?.summary }
 
+    /// The certificate the app was actually signed with, as opposed to the
+    /// intermediates and the root above it.
+    var leafCertificate: CertificateInfo? { certificates.first }
+
+    /// A trusted timestamp from Apple's timestamp server, present when the app
+    /// was signed with `--timestamp`.
+    ///
+    /// This is the fact that decides whether an expired signing certificate
+    /// matters: with a secure timestamp the signature stays valid past the
+    /// certificate's expiry, without one it does not.
+    var hasSecureTimestamp: Bool { signedDate != nil }
+
+    /// True when the certificate has expired *and* nothing vouches for when
+    /// the app was signed — the combination that actually breaks an app.
+    var isExpiryABlocker: Bool {
+        (leafCertificate?.validity.isExpired ?? false) && !hasSecureTimestamp
+    }
+
     static let unreadable = CodeSignature(
         failure: "No code signature found.",
         entitlements: [:],
@@ -80,8 +150,48 @@ enum GatekeeperVerdict: Hashable, Sendable {
     }
 }
 
+/// Whether the app has been through Apple's notarization service.
+///
+/// Derived from the `source=` line `spctl` prints, which names the rule that
+/// accepted the app — the one place macOS states this outright.
+enum NotarizationStatus: Hashable, Sendable {
+    case notarized
+    /// Signed with a Developer ID but never submitted. Gatekeeper blocks these
+    /// on a Mac that has not seen the app before.
+    case notNotarized
+    /// Apple's own software, which does not go through notarization.
+    case appleSystem
+    case appStore
+    case unknown(String)
+
+    static func from(source: String?) -> NotarizationStatus {
+        guard let source else { return .unknown("No assessment source.") }
+        // Order matters: "Unnotarized Developer ID" contains "Notarized".
+        if source.localizedCaseInsensitiveContains("unnotarized") { return .notNotarized }
+        if source.localizedCaseInsensitiveContains("notarized") { return .notarized }
+        if source.localizedCaseInsensitiveContains("app store") { return .appStore }
+        if source.localizedCaseInsensitiveContains("apple system")
+            || source.caseInsensitiveCompare("apple") == .orderedSame { return .appleSystem }
+        return .unknown(source)
+    }
+
+    var label: String {
+        switch self {
+        case .notarized: "Notarized"
+        case .notNotarized: "Not notarized"
+        case .appleSystem: "Apple system software"
+        case .appStore: "Mac App Store"
+        case .unknown: "Notarization unknown"
+        }
+    }
+
+    /// Whether the absence of notarization is a problem worth flagging.
+    var isConcern: Bool { self == .notNotarized }
+}
+
 struct GatekeeperStatus: Hashable, Sendable {
     var verdict: GatekeeperVerdict
+    var notarization: NotarizationStatus
     /// Whether a notarization ticket is stapled to the bundle itself. An app
     /// can still be notarized without a stapled ticket, in which case macOS
     /// checks online — so a `false` here is not proof of anything.
@@ -89,8 +199,16 @@ struct GatekeeperStatus: Hashable, Sendable {
 
     static let unknown = GatekeeperStatus(
         verdict: .unknown("Not evaluated."),
+        notarization: .unknown("Not evaluated."),
         hasStapledTicket: false
     )
+}
+
+/// The checks that need real work: verifying every sealed resource in the
+/// bundle, and asking Gatekeeper for a verdict.
+struct TrustAssessment: Hashable, Sendable {
+    var gatekeeper: GatekeeperStatus
+    var signatureValidity: SignatureValidity
 }
 
 /// Load-command facts about the main executable.
@@ -213,13 +331,15 @@ struct AnalyzedApp: Hashable, Sendable, Identifiable {
     var id: URL { info.url }
     var info: BundleInfo
     var signature: CodeSignature
-    /// `nil` while the Gatekeeper assessment is still running — `spctl` needs
-    /// several seconds on a large bundle, so the rest of the analysis does not
-    /// wait for it.
-    var gatekeeper: GatekeeperStatus?
+    /// `nil` while the slow checks are still running — verifying a large bundle
+    /// takes seconds, so the rest of the analysis does not wait for it.
+    var trust: TrustAssessment?
     var machO: MachOInfo
     var components: [BundleComponent]
     var findings: [PrivilegeFinding]
+
+    var gatekeeper: GatekeeperStatus? { trust?.gatekeeper }
+    var signatureValidity: SignatureValidity? { trust?.signatureValidity }
 
     /// The key a DDM `Privacy.PermissionDefaults` dictionary expects on macOS:
     /// the bundle ID, a space, then the designated requirement in braces.

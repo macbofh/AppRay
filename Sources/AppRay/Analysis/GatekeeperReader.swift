@@ -8,30 +8,34 @@ import Foundation
 /// which is exactly the distinction an admin cares about.
 enum GatekeeperReader {
     static func read(at url: URL) -> GatekeeperStatus {
-        GatekeeperStatus(
-            verdict: assess(url),
+        let assessment = assess(url)
+        return GatekeeperStatus(
+            verdict: assessment.verdict,
+            notarization: NotarizationStatus.from(source: assessment.source),
             hasStapledTicket: hasStapledTicket(url)
         )
     }
 
-    private static func assess(_ url: URL) -> GatekeeperVerdict {
+    private static func assess(_ url: URL) -> (verdict: GatekeeperVerdict, source: String?) {
         guard let result = run("/usr/sbin/spctl", ["-a", "-vv", "-t", "exec", url.path]) else {
-            return .unknown("Could not run spctl.")
+            return (.unknown("Could not run spctl."), nil)
         }
 
-        // spctl writes its verdict to stderr, one "key=value" per line.
+        // spctl writes its verdict to stderr, one "key=value" per line. The
+        // source names the rule that matched — "Notarized Developer ID",
+        // "Unnotarized Developer ID", "Apple System" and so on.
         let source = result.output
             .split(separator: "\n")
             .first { $0.contains("source=") }
             .map { $0.replacingOccurrences(of: "source=", with: "").trimmingCharacters(in: .whitespaces) }
 
         if result.status == 0 {
-            return .accepted(source: source ?? "accepted")
+            return (.accepted(source: source ?? "accepted"), source)
         }
         if result.output.contains("rejected") {
-            return .rejected(reason: source ?? "rejected by Gatekeeper")
+            return (.rejected(reason: source ?? "rejected by Gatekeeper"), source)
         }
-        return .unknown(result.output.isEmpty ? "No verdict." : result.output)
+        return (.unknown(result.output.isEmpty ? "No verdict." : result.output), source)
     }
 
     private static func hasStapledTicket(_ url: URL) -> Bool {

@@ -27,10 +27,33 @@ shows you what it is doing.
 | --- | --- |
 | **Overview** | Icon, name, version, bundle ID, team ID, Gatekeeper verdict, architectures, SDK, URL schemes — and the two strings MDM targets the app by |
 | **Privileges** | Every privacy-relevant capability found, grouped by how strong the evidence is, with the literal `Info.plist` key or entitlement that triggered it |
-| **Signature** | Designated requirement, CDHash, certificate chain, hardened runtime, notarization ticket, full entitlements tree, linked frameworks |
+| **Signature** | Designated requirement, CDHash, signature verification, certificate validity, notarization, certificate chain, full entitlements tree, linked frameworks |
 | **Components** | Privileged helpers, login items, XPC services, system extensions and plug-ins, each with its own team ID and requirement |
 
 Every value copies to the clipboard on click.
+
+### Validity, and the part people get wrong
+
+The Signature tab answers whether the app will actually run, and keep running:
+
+- **Signature** — verified against every sealed resource in the bundle, strictly,
+  the way Gatekeeper does it. A bundle someone dropped a file into fails here.
+- **Signing certificate** — the full validity window and how many days are left,
+  with a warning from 60 days out.
+- **Secure timestamp** — present or not.
+- **Notarization** — notarized, not notarized, Apple system software or App
+  Store, read from the rule `spctl` says matched.
+- **Stapled ticket** — separate from notarization, because it is not the same
+  question.
+
+The certificate and the timestamp interact, and AppRay spells the result out
+rather than leaving you to work it out:
+
+> An **expired certificate with a secure timestamp** is fine — the timestamp
+> proves the app was signed while the certificate was valid, and macOS accepts
+> it. An **expired certificate without one** genuinely breaks the app and it
+> needs re-signing. A **live certificate without a timestamp** works today and
+> stops working the day the certificate expires.
 
 ### Three levels of confidence
 
@@ -110,9 +133,15 @@ and runs `spctl` and `stapler` to determine Gatekeeper state. Everything else �
 signing identity, entitlements, designated requirement, CDHash — comes straight
 from Security.framework, with no subprocess and no output parsing.
 
-**Gatekeeper runs separately.** `spctl` takes about six seconds on a bundle the
-size of Chrome, so the rest of the analysis (under 100 ms for the same app)
-lands first and the badge fills itself in.
+**The project file is checked in and rarely changes.** `AppRay.xcodeproj` uses
+synchronized folder groups, so `Sources/` and `Tests/` are folder references —
+adding a file on disk is enough, the project does not need editing and the
+`.pbxproj` stays out of your diffs.
+
+**Verification runs separately.** Verifying every sealed resource and asking
+Gatekeeper each take seconds on a bundle the size of Chrome, so they run
+concurrently on a background task while the rest of the analysis (under 100 ms
+for the same app) lands first. The validity rows fill themselves in.
 
 **`Reference/`** holds the two Apple schema files the exporters are written
 against, vendored so the tests do not depend on the network:

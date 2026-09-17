@@ -73,11 +73,11 @@ final class InspectorModel {
                 phase = .loaded(app)
                 NSDocumentController.shared.noteNewRecentDocumentURL(resolved)
 
-                // Gatekeeper takes seconds on a large bundle, so it lands
-                // afterwards and the badge fills itself in.
-                let status = await AppAnalyzer.assessGatekeeper(url: resolved)
+                // Verification takes seconds on a large bundle, so it lands
+                // afterwards and the badges fill themselves in.
+                let trust = await AppAnalyzer.assessTrust(url: resolved)
                 guard case .loaded(var current) = phase, current.info.url == resolved else { return }
-                current.gatekeeper = status
+                current.trust = trust
                 withAnimation(.smooth) { phase = .loaded(current) }
             } catch {
                 let error = error as? AnalysisError

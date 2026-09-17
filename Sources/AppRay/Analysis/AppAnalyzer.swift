@@ -31,12 +31,19 @@ enum AppAnalyzer {
         }.value
     }
 
-    /// Run separately, because `spctl` takes seconds on a bundle the size of a
-    /// browser and there is no reason to stare at a spinner meanwhile.
-    static func assessGatekeeper(url: URL) async -> GatekeeperStatus {
-        await Task.detached(priority: .utility) {
+    /// Verifying the signature and asking Gatekeeper both walk every sealed
+    /// resource in the bundle, which takes seconds on something the size of a
+    /// browser. They run separately from the rest of the analysis, and
+    /// concurrently with each other.
+    static func assessTrust(url: URL) async -> TrustAssessment {
+        async let gatekeeper = Task.detached(priority: .utility) {
             GatekeeperReader.read(at: url)
         }.value
+        async let validity = Task.detached(priority: .utility) {
+            CodeSignatureReader.validate(at: url)
+        }.value
+
+        return await TrustAssessment(gatekeeper: gatekeeper, signatureValidity: validity)
     }
 
     static func analyzeSynchronously(url: URL) throws -> AnalyzedApp {
@@ -55,7 +62,7 @@ enum AppAnalyzer {
         return AnalyzedApp(
             info: info,
             signature: signature,
-            gatekeeper: nil,
+            trust: nil,
             machO: machO,
             components: BundleReader.components(in: url),
             findings: PrivilegeCatalog.findings(info: info, signature: signature, machO: machO)

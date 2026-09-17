@@ -33,7 +33,7 @@ private func makeApp(
             hasLibraryValidation: true,
             flags: 0
         ),
-        gatekeeper: nil,
+        trust: nil,
         machO: .empty,
         components: [],
         findings: findings
