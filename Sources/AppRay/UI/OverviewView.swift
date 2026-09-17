@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct OverviewView: View {
+    @Environment(InspectorModel.self) private var model
     var app: AnalyzedApp
 
     var body: some View {
@@ -85,6 +86,9 @@ struct OverviewView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 18) {
             AppIconView(url: app.info.url, size: 108)
+                .contextMenu {
+                    Button("Export Icon as PNG…") { model.exportIcon() }
+                }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(app.info.name)

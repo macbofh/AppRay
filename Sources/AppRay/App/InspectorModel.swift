@@ -111,6 +111,29 @@ final class InspectorModel {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    /// Saves the analysed app's icon as a PNG at the largest size Icon
+    /// Services provides.
+    func exportIcon() {
+        guard let app else { return }
+        let panel = NSSavePanel()
+        let cleaned = app.info.name.replacingOccurrences(of: "/", with: "-")
+        panel.nameFieldStringValue = "\(cleaned)-icon.png"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.png]
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        guard let data = BundleReader.largestIconPNG(for: app.info.url) else {
+            show(toast: "Could not render the icon")
+            return
+        }
+        do {
+            try data.write(to: destination)
+            show(toast: "Saved \(destination.lastPathComponent)")
+        } catch {
+            show(toast: "Could not save: \(error.localizedDescription)")
+        }
+    }
+
     func copy(_ text: String, label: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

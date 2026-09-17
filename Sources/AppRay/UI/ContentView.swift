@@ -91,6 +91,9 @@ private struct LoadedView: View {
         }
         ToolbarItem(placement: .navigation) {
             AppIconView(url: app.info.url, size: 20)
+                .contextMenu {
+                    Button("Export Icon as PNG…") { model.exportIcon() }
+                }
         }
         .sharedBackgroundVisibility(.hidden)
         ToolbarSpacer(.flexible)

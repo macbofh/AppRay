@@ -39,6 +39,28 @@ enum BundleReader {
         NSWorkspace.shared.icon(forFile: url.path)
     }
 
+    /// The Finder icon rendered at the largest size Icon Services provides
+    /// (1024 pt at 2× for a modern app), encoded as PNG.
+    ///
+    /// This is always the default appearance: Icon Services renders the dark
+    /// and tinted variants itself and offers no public API to request them
+    /// for another app's icon — the drawing appearance is ignored.
+    static func largestIconPNG(for url: URL) -> Data? {
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        let pixels = icon.representations.map(\.pixelsWide).max() ?? 1024
+        guard pixels > 0, let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return nil }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        icon.draw(in: NSRect(x: 0, y: 0, width: CGFloat(pixels), height: CGFloat(pixels)))
+        NSGraphicsContext.restoreGraphicsState()
+        return bitmap.representation(using: .png, properties: [:])
+    }
+
     /// Nested executables that carry privileges of their own. Each of these can
     /// need its own PPPC entry, which is exactly what admins forget.
     static func components(in bundleURL: URL) -> [BundleComponent] {
