@@ -1,8 +1,9 @@
 # AppRay
 
 A macOS tool for Mac admins. Drop an application — macOS or iOS — on it and it
-reads what that app can reach — usage descriptions, entitlements, linked frameworks, nested
-helpers — then builds the MDM configuration that matches: a **PPPC profile**
+reads what that app can reach: usage descriptions, entitlements, linked
+frameworks, nested helpers. It says whether the bundle still matches its
+signature, and it builds the MDM configuration that matches: a **PPPC profile**
 (`.mobileconfig`) and a **DDM declaration** (`com.apple.configuration.app.settings`).
 
 ![The overview of an analysed app](docs/overview.png)
@@ -27,7 +28,7 @@ shows you what it is doing.
 | --- | --- |
 | **Overview** | Icon, name, version, bundle ID, team ID, Gatekeeper verdict, architectures, SDK, URL schemes — and the two strings MDM targets the app by |
 | **Privileges** | Every privacy-relevant capability found, grouped by how strong the evidence is, with the literal `Info.plist` key or entitlement that triggered it |
-| **Signature** | Designated requirement, CDHash, signature verification, certificate validity, notarization, certificate chain, full entitlements tree, linked frameworks |
+| **Signature** | Designated requirement, CDHash, signature verification and what changed since signing, certificate validity, notarization, certificate chain, full entitlements tree, linked frameworks |
 | **Components** | Privileged helpers, login items, XPC services, system extensions and plug-ins, each with its own team ID and requirement |
 
 Every value copies to the clipboard on click.
@@ -48,7 +49,9 @@ What changes for an iOS app:
 - **`MinimumOSVersion` instead of `LSMinimumSystemVersion`.**
 - **Gatekeeper is not asked.** It rejects every iOS bundle on sight, because
   macOS cannot run one. That verdict says nothing about the app, so it is not
-  put on screen. The signature is still verified.
+  put on screen. The signature is still verified, and a bundle that fails is
+  taken apart file by file exactly as a Mac app is — with what it costs stated
+  for a device rather than for Gatekeeper.
 - **The macOS judgement calls are not offered.** iOS has no Accessibility, Full
   Disk Access, Input Monitoring or Send Keystrokes to decide about.
 - **The iOS-only subjects are surfaced.** Face ID, Motion & Fitness, Health,
@@ -60,8 +63,14 @@ What changes for an iOS app:
 
 The Signature tab answers whether the app will actually run, and keep running:
 
-- **Signature** — verified against every sealed resource in the bundle, strictly,
-  the way Gatekeeper does it. A bundle someone dropped a file into fails here.
+- **Signature** — verified against every sealed resource in the bundle *and*
+  inside every framework, helper and extension in it, strictly, the way
+  Gatekeeper does it. A bundle someone dropped a file into fails here —
+  and the app then names every file that changed rather than stopping at the
+  verdict: modified, added, missing, and nested code that fails on its own. A
+  modified file is shown with the hash the signature sealed beside the hash of
+  what is on disk now. One click copies the lot as a plain-text report to put in
+  a ticket or send to the vendor.
 - **Signing certificate** — the full validity window and how many days are left,
   with a warning from 60 days out.
 - **Secure timestamp** — present or not.
@@ -165,7 +174,9 @@ xcodebuild -project AppRay.xcodeproj -scheme AppRay test
 Some tests cross-check the analyzer against `codesign` on real system apps, and
 validate a generated profile with `plutil -lint`. The iOS tests run against a
 real bundle from an installed simulator runtime and skip themselves on a
-machine that has none.
+machine that has none. The tamper tests build their own signed bundles — one
+macOS app with an extension inside it, one flat — tamper with them, and hold
+what AppRay says against `codesign` and `shasum` on the same files.
 
 You can also point it at an app from the command line:
 
@@ -194,10 +205,13 @@ synchronized folder groups, so `Sources/` and `Tests/` are folder references —
 adding a file on disk is enough, the project does not need editing and the
 `.pbxproj` stays out of your diffs.
 
-**Verification runs separately.** Verifying every sealed resource and asking
-Gatekeeper each take seconds on a bundle the size of Chrome, so they run
-concurrently on a background task while the rest of the analysis (under 100 ms
-for the same app) lands first. The validity rows fill themselves in.
+**Verification runs separately.** Verifying every sealed resource — the
+bundle's own and those of every framework, helper and extension inside it —
+takes seconds on a bundle the size of Chrome, and asking Gatekeeper takes
+seconds more, so they run concurrently on a background task while the rest of
+the analysis (under 100 ms for the same app) lands first. The validity rows
+fill themselves in. For an iOS bundle only the first of the two runs, because
+there is nothing to ask Gatekeeper.
 
 **`Reference/`** holds the two Apple schema files the exporters are written
 against, vendored so the tests do not depend on the network:

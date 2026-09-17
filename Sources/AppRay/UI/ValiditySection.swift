@@ -15,7 +15,7 @@ struct ValiditySection: View {
                 switch app.trust?.signatureValidity {
                 case .valid:
                     StatusText("Verified against the bundle contents", tone: .positive)
-                case .invalid(let reason):
+                case .invalid(let reason, _):
                     StatusText(reason, tone: .critical)
                 case .unsigned:
                     StatusText("Not signed", tone: .critical)
@@ -156,6 +156,123 @@ struct ValiditySection: View {
         case .appleSystem: .neutral
         case .unknown: .caution
         }
+    }
+}
+
+/// What changed in the bundle, once the signature has said it no longer
+/// matches.
+///
+/// Grouped the way the privileges list is grouped — one group per kind, with
+/// the sentence that says what that kind means underneath it — because a list
+/// of paths without that sentence is another dead end.
+struct TamperSection: View {
+    @Environment(InspectorModel.self) private var model
+
+    var app: AnalyzedApp
+    var report: TamperReport
+
+    var body: some View {
+        DetailSection(
+            title: "What changed since signing",
+            footnote: """
+            Paths are relative to the bundle. The same enumeration \
+            `codesign --verify --deep --strict -vvvvv` prints, read straight from \
+            Security.framework.
+            """
+        ) {
+            ForEach(report.findingsByKind, id: \.kind) { group in
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(
+                        "\(group.kind.title) — \(group.findings.count)",
+                        systemImage: group.kind.symbolName
+                    )
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.orange)
+
+                    Text(group.kind.explanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ForEach(group.findings) { finding in
+                        TamperRow(finding: finding)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if group.kind != report.findingsByKind.last?.kind {
+                    Divider()
+                }
+            }
+
+            Divider()
+
+            Button("Copy the whole report") {
+                guard let text = app.tamperReportText else { return }
+                model.copy(text, label: "Tamper report")
+            }
+            .buttonStyle(.link)
+            .font(.callout)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// One offending file. Clicking it copies its path, the way every other value
+/// in this app behaves.
+private struct TamperRow: View {
+    @Environment(InspectorModel.self) private var model
+
+    var finding: TamperFinding
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(finding.path)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                if let detail = finding.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Shortened here so the pair fits beside a path; the copied
+                // report carries both hashes in full.
+                if let digests = finding.digests {
+                    Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 1) {
+                        GridRow {
+                            Text("Sealed \(digests.algorithm)")
+                            Text(digests.shortSealed).monospaced()
+                        }
+                        GridRow {
+                            Text("On disk")
+                            Text(digests.shortOnDisk).monospaced()
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "document.on.document")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+                .opacity(isHovering ? 1 : 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+        .onHover { isHovering = $0 }
+        .onTapGesture { model.copy(finding.path, label: "Path") }
+        .help("Click to copy")
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Copies the path to the clipboard")
     }
 }
 

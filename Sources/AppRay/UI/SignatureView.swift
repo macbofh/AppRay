@@ -37,6 +37,10 @@ struct SignatureView: View {
 
                 ValiditySection(app: app)
 
+                if case .invalid(_, let tamper) = app.trust?.signatureValidity, !tamper.isEmpty {
+                    TamperSection(app: app, report: tamper)
+                }
+
                 DetailSection(title: "Signing details") {
                     CopyableRow(label: "Team identifier", value: app.signature.teamIdentifier)
                     Divider()
