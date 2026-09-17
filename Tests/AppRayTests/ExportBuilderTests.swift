@@ -12,7 +12,7 @@ private func makeApp(
 ) -> AnalyzedApp {
     AnalyzedApp(
         info: BundleInfo(
-            url: URL(fileURLWithPath: "/Applications/Example.app"),
+            layout: .macOS(bundleURL: URL(fileURLWithPath: "/Applications/Example.app")),
             name: "Example",
             bundleIdentifier: bundleIdentifier,
             shortVersion: "1.0",

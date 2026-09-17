@@ -70,7 +70,7 @@ struct AnalysisTests {
     )
     func machOReadsRealBinary() throws {
         let url = URL(fileURLWithPath: "/System/Applications/Calculator.app")
-        let info = try BundleReader.readInfo(at: url)
+        let info = try BundleReader.readInfo(in: .macOS(bundleURL: url))
         let executable = try #require(BundleReader.executableURL(for: info))
         let machO = MachOReader.read(at: executable)
 
@@ -84,7 +84,7 @@ struct AnalysisTests {
         .enabled(if: FileManager.default.fileExists(atPath: AnalysisTests.safari.path))
     )
     func bundleInfo() throws {
-        let info = try BundleReader.readInfo(at: Self.safari)
+        let info = try BundleReader.readInfo(in: .macOS(bundleURL: Self.safari))
         #expect(info.bundleIdentifier == "com.apple.Safari")
         #expect(info.versionSummary != nil)
     }
@@ -123,7 +123,7 @@ struct AnalysisTests {
 struct PrivilegeCatalogTests {
     private func info(_ keys: [String: PlistValue]) -> BundleInfo {
         BundleInfo(
-            url: URL(fileURLWithPath: "/Applications/Example.app"),
+            layout: .macOS(bundleURL: URL(fileURLWithPath: "/Applications/Example.app")),
             name: "Example",
             isAgent: false,
             urlSchemes: [],

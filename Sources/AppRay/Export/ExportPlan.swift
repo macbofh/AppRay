@@ -102,6 +102,30 @@ enum ExportChannel: String, CaseIterable, Identifiable, Sendable {
         case .ddm: "json"
         }
     }
+
+    /// What this channel cannot do for a bundle of this platform, said before
+    /// anything is generated rather than after it has been deployed.
+    ///
+    /// Both sentences come from the vendored schemas: the PPPC payload is
+    /// listed as unavailable on iOS, and the DDM privacy defaults are keyed by
+    /// bundle ID on iOS and noted as AppKit-only on macOS.
+    func caveat(for platform: BundlePlatform) -> String? {
+        guard platform == .iOS else { return nil }
+        switch self {
+        case .pppc:
+            return """
+            Apple's schema lists this payload as unavailable on iOS, so it never reaches an \
+            iPhone or iPad. Whether it matches an iOS app running on a Mac, AppRay does not \
+            know — that has not been verified.
+            """
+        case .ddm:
+            return """
+            Keyed by the bundle identifier alone, which is the form iOS expects; the \
+            designated requirement is not used. Apple notes the privacy defaults are \
+            AppKit-only on macOS, so this reaches the app on iOS and iPadOS, not on a Mac.
+            """
+        }
+    }
 }
 
 /// Everything the two builders need, kept in one value so the live preview is
@@ -129,7 +153,12 @@ struct ExportPlan: Hashable, Sendable {
             ServiceDecision(
                 service: finding.service,
                 isIncluded: finding.confidence == .declared,
-                authorization: finding.service.pppcSupport == .denyOnly ? .deny : .allow
+                // Deny is the honest default only where a profile cannot
+                // grant. There is no profile for an iOS app, and the
+                // declaration only ever grants, so Allow is the only starting
+                // point that produces anything at all.
+                authorization: app.info.platform == .macOS
+                    && finding.service.pppcSupport == .denyOnly ? .deny : .allow
             )
         }
         organization = ""

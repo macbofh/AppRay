@@ -19,10 +19,7 @@ struct SignatureView: View {
 
                 DetailSection(
                     title: "Designated requirement",
-                    footnote: """
-                    The `CodeRequirement` of every PPPC entry, and the part inside the \
-                    braces of the DDM composed identifier. Identical to `codesign -d -r-`.
-                    """
+                    footnote: requirementFootnote
                 ) {
                     CopyableRow(
                         label: "Requirement",
@@ -39,6 +36,10 @@ struct SignatureView: View {
                 }
 
                 ValiditySection(app: app)
+
+                if case .invalid(_, let tamper) = app.trust?.signatureValidity, !tamper.isEmpty {
+                    TamperSection(app: app, report: tamper)
+                }
 
                 DetailSection(title: "Signing details") {
                     CopyableRow(label: "Team identifier", value: app.signature.teamIdentifier)
@@ -106,4 +107,19 @@ struct SignatureView: View {
         }
     }
 
+    private var requirementFootnote: String {
+        switch app.info.platform {
+        case .macOS:
+            """
+            The `CodeRequirement` of every PPPC entry, and the part inside the \
+            braces of the DDM composed identifier. Identical to `codesign -d -r-`.
+            """
+        case .iOS:
+            """
+            Identical to `codesign -d -r-`, and read here for completeness. Nothing on iOS \
+            uses it: there is no PPPC payload there, and a declaration is keyed by the \
+            bundle identifier alone.
+            """
+        }
+    }
 }

@@ -40,8 +40,22 @@ enum DDMDeclarationBuilder {
         guard let bundleIdentifier = app.info.bundleIdentifier else {
             throw ExportError.missingBundleIdentifier
         }
-        guard let requirement = app.signature.designatedRequirement else {
-            throw ExportError.missingDesignatedRequirement
+
+        // Apple's schema: "In iOS, the app identifier is a bundle ID." Only
+        // macOS composes it with a designated requirement, so only macOS needs
+        // one to be readable.
+        let identifier: String
+        switch app.info.platform {
+        case .macOS:
+            guard let requirement = app.signature.designatedRequirement else {
+                throw ExportError.missingDesignatedRequirement
+            }
+            identifier = composedIdentifier(
+                bundleIdentifier: bundleIdentifier,
+                designatedRequirement: requirement
+            )
+        case .iOS:
+            identifier = bundleIdentifier
         }
 
         let included = plan.decisions(representableIn: .ddm)
@@ -58,11 +72,6 @@ enum DDMDeclarationBuilder {
                 ? decision.locationMode
                 : "Allow"
         }
-
-        let identifier = composedIdentifier(
-            bundleIdentifier: bundleIdentifier,
-            designatedRequirement: requirement
-        )
 
         return [
             "Type": declarationType,

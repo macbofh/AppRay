@@ -107,6 +107,20 @@ struct ExportSheet: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 8)
 
+            // Three answers, narrowing: can this bundle be trusted at all,
+            // will this channel reach the device, and what did it drop.
+            if let warning = signatureWarning {
+                SignatureNotice(lines: warning)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+
+            if let caveat = channel.caveat(for: app.info.platform) {
+                PlatformNotice(text: caveat)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+
             if !omissions.isEmpty {
                 OmissionNotice(omissions: omissions)
                     .padding(.horizontal, 12)
@@ -135,6 +149,44 @@ struct ExportSheet: View {
 
     private var omissions: [(decision: ServiceDecision, reason: String)] {
         plan.omissions(in: channel)
+    }
+
+    /// Both outputs identify the app by its designated requirement, and that
+    /// comes out of the signature rather than off the disk. If the bundle no
+    /// longer matches that signature, the profile describes the app the
+    /// developer shipped and not the copy in front of you — which belongs
+    /// here, next to everything else the output cannot carry.
+    private var signatureWarning: [String]? {
+        guard case .invalid(let reason, let tamper) = app.trust?.signatureValidity else { return nil }
+
+        var lines = [reason]
+        if !tamper.isEmpty {
+            let count = tamper.findings.count
+            lines.append(
+                "\(count) \(count == 1 ? "file does" : "files do") not match — see the Signature tab."
+            )
+        }
+        // An iOS declaration is keyed by the bundle identifier alone, so there
+        // is no requirement in it to have gone stale — and that is the worse
+        // news, not the better one. The notice below says how it is keyed;
+        // this says what that costs, without saying it twice.
+        if channel == .ddm, app.info.platform == .iOS {
+            lines.append(
+                """
+                This declaration carries no designated requirement that could have gone \
+                stale — and nothing else in it tells the developer's build from this copy.
+                """
+            )
+        } else {
+            lines.append(
+                """
+                The designated requirement baked into this output was read from the \
+                signature, not from the files on disk. It still describes the app as its \
+                developer signed it, not this copy.
+                """
+            )
+        }
+        return lines
     }
 
     // MARK: - Bottom
@@ -238,6 +290,43 @@ private struct DecisionRow: View {
             options.append(.allowStandardUser)
         }
         return options
+    }
+}
+
+private struct SignatureNotice: View {
+    var lines: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("This bundle does not match its signature", systemImage: "xmark.seal")
+                .font(.caption.weight(.medium))
+
+            ForEach(lines, id: \.self) { line in
+                Text(line)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(.red.opacity(0.12), in: .rect(cornerRadius: 8))
+    }
+}
+
+/// A limit that applies to the whole output rather than to one service. The
+/// omissions below answer "what did you drop"; this answers "will any of this
+/// reach the device at all".
+private struct PlatformNotice: View {
+    var text: String
+
+    var body: some View {
+        Label(text, systemImage: "iphone")
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(.orange.opacity(0.12), in: .rect(cornerRadius: 8))
     }
 }
 

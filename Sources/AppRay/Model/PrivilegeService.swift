@@ -37,7 +37,8 @@ enum DDMPrivacyValues: Sendable {
 /// A privacy-relevant capability of an application.
 ///
 /// The raw value is the TCC service name as it appears in a PPPC payload.
-/// Services that only exist in declarative management carry their DDM name.
+/// Services that only exist in declarative management carry their DDM name,
+/// and the iOS-only subjects carry the name their `Info.plist` keys use.
 enum PrivilegeService: String, CaseIterable, Identifiable, Sendable {
     case accessibility = "Accessibility"
     case addressBook = "AddressBook"
@@ -66,7 +67,31 @@ enum PrivilegeService: String, CaseIterable, Identifiable, Sendable {
     case systemPolicyRemovableVolumes = "SystemPolicyRemovableVolumes"
     case systemPolicySysAdminFiles = "SystemPolicySysAdminFiles"
 
+    // Subjects that exist only on iOS and iPadOS. macOS has no TCC service for
+    // any of them and no declaration carries one, so they can only ever be
+    // reported. They are here so an iOS analysis is complete rather than
+    // quietly short of what the app actually asks for.
+    case alarmKit = "AlarmKit"
+    case faceID = "FaceID"
+    case focusStatus = "FocusStatus"
+    case health = "Health"
+    case homeKit = "HomeKit"
+    case identity = "Identity"
+    case motion = "Motion"
+    case siri = "Siri"
+    case userNotifications = "UserNotifications"
+    case userTracking = "UserTracking"
+
     var id: String { rawValue }
+
+    /// Whether this is one of the iOS-only subjects above.
+    var isIOSOnly: Bool {
+        switch self {
+        case .alarmKit, .faceID, .focusStatus, .health, .homeKit, .identity,
+             .motion, .siri, .userNotifications, .userTracking: true
+        default: false
+        }
+    }
 
     var displayName: String {
         switch self {
@@ -96,6 +121,16 @@ enum PrivilegeService: String, CaseIterable, Identifiable, Sendable {
         case .systemPolicyNetworkVolumes: "Network Volumes"
         case .systemPolicyRemovableVolumes: "Removable Volumes"
         case .systemPolicySysAdminFiles: "System Administration"
+        case .alarmKit: "Alarms & Timers"
+        case .faceID: "Face ID"
+        case .focusStatus: "Focus Status"
+        case .health: "Health"
+        case .homeKit: "Home"
+        case .identity: "Identity Documents"
+        case .motion: "Motion & Fitness"
+        case .siri: "Siri"
+        case .userNotifications: "Notifications"
+        case .userTracking: "Tracking"
         }
     }
 
@@ -127,12 +162,23 @@ enum PrivilegeService: String, CaseIterable, Identifiable, Sendable {
         case .systemPolicyNetworkVolumes: "externaldrive.connected.to.line.below"
         case .systemPolicyRemovableVolumes: "externaldrive.badge.plus"
         case .systemPolicySysAdminFiles: "gearshape.2"
+        case .alarmKit: "alarm"
+        case .faceID: "faceid"
+        case .focusStatus: "moon"
+        case .health: "heart"
+        case .homeKit: "house"
+        case .identity: "person.text.rectangle"
+        case .motion: "figure.walk"
+        case .siri: "sparkles"
+        case .userNotifications: "bell"
+        case .userTracking: "hand.raised.slash"
         }
     }
 
     /// The `Services` key in a PPPC payload, when one exists.
     var pppcServiceKey: String? {
         switch self {
+        case _ where isIOSOnly: nil
         case .localNetwork, .location: nil
         default: rawValue
         }
@@ -140,6 +186,7 @@ enum PrivilegeService: String, CaseIterable, Identifiable, Sendable {
 
     var pppcSupport: PPPCSupport {
         switch self {
+        case _ where isIOSOnly: .unsupported
         case .localNetwork, .location: .unsupported
         // Apple's schema: "A profile can't grant access … it can only deny it."
         case .camera, .microphone, .screenCapture: .denyOnly
@@ -184,6 +231,11 @@ enum PrivilegeService: String, CaseIterable, Identifiable, Sendable {
     /// Shown verbatim in the UI so nobody ships a profile that cannot work.
     var manageabilitySummary: String {
         switch (pppcSupport, ddmPrivacyKey != nil) {
+        case _ where isIOSOnly:
+            """
+            Nothing carries this. There is no TCC service for it and no DDM privacy key \
+            for it, on any platform — the user grants it in the app, or it stays off.
+            """
         case (.grantAndDeny, true):
             "A PPPC profile can allow or deny this, but the key is deprecated in macOS 27 — prefer the DDM declaration."
         case (.grantAndDeny, false):
