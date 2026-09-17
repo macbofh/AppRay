@@ -7,8 +7,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIGURATION="${1:-Debug}"
 
-[[ -d AppRay.xcodeproj ]] || ./scripts/generate_project.sh
-
 xcodebuild \
   -project AppRay.xcodeproj \
   -scheme AppRay \

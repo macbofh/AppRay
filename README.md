@@ -81,14 +81,12 @@ quietly.
 Requires Xcode 26 or later and macOS 26 or later.
 
 ```bash
-brew install xcodegen
-./scripts/generate_project.sh
-./scripts/build.sh
+open AppRay.xcodeproj    # or: ./scripts/build.sh
 ```
 
-`project.yml` is the source of truth; the `.xcodeproj` is generated and not
-checked in. The app builds ad-hoc signed so it works on any machine — set your
-own team in Xcode under Signing & Capabilities to notarize and distribute it.
+The app builds ad-hoc signed so it works on any machine without a team — set
+your own team in Xcode under Signing & Capabilities to notarize and distribute
+it.
 
 Run the tests with:
 
