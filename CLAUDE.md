@@ -12,6 +12,19 @@ declaration. See `README.md` for the user-facing description.
 Requires Xcode 26+ and macOS 26+. Deployment target is macOS 26.0; the UI uses
 Liquid Glass APIs (`glassEffect`, `.buttonStyle(.glassProminent)`, `ToolbarSpacer`).
 
+## Credits
+
+Sorted by surname, ignoring the Dutch tussenvoegsel. This list mirrors the
+About panel credits in `Sources/AppRay/App/AppRayApp.swift` — keep the two in
+sync when adding a contributor.
+
+- Bastiaan de Beer ([bastiaandb](https://github.com/bastiaandb))
+- Ralf Deuze ([MacScully76](https://github.com/MacScully76))
+- Sander Schram ([macbofh](https://github.com/macbofh))
+- Erik Stam ([erikstam](https://github.com/erikstam))
+- Rens Verhoeven ([renssies](https://github.com/renssies))
+- Mike Vos ([vosmike](https://github.com/vosmike))
+
 ## Commands
 
 ```bash
