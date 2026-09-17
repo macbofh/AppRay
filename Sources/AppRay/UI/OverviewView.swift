@@ -158,6 +158,10 @@ struct OverviewView: View {
         if app.info.isAgent {
             Badge(text: "Agent (no Dock icon)", symbolName: "eye.slash", tone: .neutral)
         }
+
+        if app.quarantine != nil {
+            Badge(text: "Quarantined", symbolName: "arrow.down.app", tone: .caution)
+        }
     }
 
     /// An expired certificate only breaks an app that was signed without a

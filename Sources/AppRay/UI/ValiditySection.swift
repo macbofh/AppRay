@@ -87,6 +87,16 @@ struct ValiditySection: View {
 
             Divider()
 
+            LabeledContent("Quarantine") {
+                if let quarantine = app.quarantine {
+                    StatusText(quarantineText(quarantine), tone: .caution)
+                } else {
+                    StatusText("Not quarantined", tone: .neutral)
+                }
+            }
+
+            Divider()
+
             LabeledContent("Gatekeeper") {
                 if let text = gatekeeperText {
                     Text(text).multilineTextAlignment(.trailing)
@@ -126,6 +136,21 @@ struct ValiditySection: View {
             """
         case (false, true):
             return "A missing stapled ticket is not proof of anything — macOS can still check notarization online."
+        }
+    }
+
+    /// "Quarantined", plus whichever of the downloading agent and the date the
+    /// attribute actually recorded.
+    private func quarantineText(_ quarantine: QuarantineInfo) -> String {
+        switch (quarantine.agentName, quarantine.timestamp) {
+        case let (agent?, date?):
+            "Quarantined — downloaded with \(agent) on \(date.formatted(date: .abbreviated, time: .omitted))"
+        case let (agent?, nil):
+            "Quarantined — downloaded with \(agent)"
+        case let (nil, date?):
+            "Quarantined since \(date.formatted(date: .abbreviated, time: .omitted))"
+        case (nil, nil):
+            "Quarantined"
         }
     }
 

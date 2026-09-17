@@ -204,6 +204,16 @@ struct GatekeeperStatus: Hashable, Sendable {
     )
 }
 
+/// The `com.apple.quarantine` extended attribute macOS puts on downloaded
+/// files. Its presence is what makes Gatekeeper assess the app on first
+/// launch; apps installed by an MDM do not carry it.
+struct QuarantineInfo: Hashable, Sendable {
+    /// The app that downloaded the file, e.g. "Safari".
+    var agentName: String?
+    /// When the attribute was applied.
+    var timestamp: Date?
+}
+
 /// The checks that need real work: verifying every sealed resource in the
 /// bundle, and asking Gatekeeper for a verdict.
 struct TrustAssessment: Hashable, Sendable {
@@ -334,6 +344,8 @@ struct AnalyzedApp: Hashable, Sendable, Identifiable {
     /// `nil` while the slow checks are still running — verifying a large bundle
     /// takes seconds, so the rest of the analysis does not wait for it.
     var trust: TrustAssessment?
+    /// `nil` when the bundle carries no quarantine attribute.
+    var quarantine: QuarantineInfo?
     var machO: MachOInfo
     var components: [BundleComponent]
     var findings: [PrivilegeFinding]
