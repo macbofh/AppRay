@@ -187,6 +187,80 @@ struct TamperTests {
         let result = try validateTamperedCopy { _ in }
         #expect(result.validity == .valid)
     }
+
+    /// A temporary directory that cleans itself up, for the built fixtures.
+    private func withTemporaryDirectory<T>(_ body: (URL) throws -> T) throws -> T {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "AppRayFixture-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        return try body(directory)
+    }
+
+    @Test("A file edited inside an app extension is found, and named twice over")
+    func nestedComponent() throws {
+        try withTemporaryDirectory { directory in
+            let app = try BundleFixture.nested(in: directory)
+            #expect(CodeSignatureReader.validate(at: app) == .valid, "the fixture should verify")
+
+            try append(
+                "tampered",
+                to: app.appending(path: "Contents/PlugIns/Inner.appex/Contents/Resources/data.txt")
+            )
+
+            let tamper = try report(CodeSignatureReader.validate(at: app))
+
+            // The extension is named as the component that failed…
+            let component = try #require(tamper.findings.first { $0.kind == .subcomponent })
+            #expect(component.path == "Contents/PlugIns/Inner.appex")
+
+            // …and the file inside it is named in full, relative to the outer
+            // bundle rather than to the extension.
+            let modified = try #require(tamper.findings.first { $0.kind == .modified })
+            #expect(modified.path == "Contents/PlugIns/Inner.appex/Contents/Resources/data.txt")
+
+            // The hash came out of the extension's own manifest, not the app's.
+            let inner = try #require(
+                SealedResourceManifest.read(
+                    at: app.appending(
+                        path: "Contents/PlugIns/Inner.appex/Contents/_CodeSignature/CodeResources"
+                    )
+                )
+            )
+            #expect(modified.digests?.sealed == inner["Resources/data.txt"]?.sealedDigest)
+            #expect(modified.digests?.onDisk != modified.digests?.sealed)
+
+            // codesign says the same two things about the same bundle.
+            let output = codesign(app)
+            #expect(output.contains("In subcomponent:"))
+            #expect(output.contains("file modified:"))
+        }
+    }
+
+    @Test("A flat bundle, the shape an iOS app uses, reports paths from its root")
+    func flatBundle() throws {
+        try withTemporaryDirectory { directory in
+            let app = try BundleFixture.flat(in: directory)
+            #expect(CodeSignatureReader.validate(at: app) == .valid, "the fixture should verify")
+
+            try append("tampered", to: app.appending(path: "data.txt"))
+            try Data("payload".utf8).write(to: app.appending(path: "added.txt"))
+
+            let tamper = try report(CodeSignatureReader.validate(at: app))
+
+            // No `Contents` anywhere: the paths start at the bundle root, which
+            // is also where this layout keeps `_CodeSignature/CodeResources`.
+            let modified = try #require(tamper.findings.first { $0.kind == .modified })
+            #expect(modified.path == "data.txt")
+            let added = try #require(tamper.findings.first { $0.kind == .added })
+            #expect(added.path == "added.txt")
+
+            // The manifest was still found, so the hash pair is still there.
+            let digests = try #require(modified.digests)
+            #expect(digests.algorithm == "SHA-256")
+            #expect(digests.sealed != digests.onDisk)
+        }
+    }
 }
 
 /// `CodeResources` seals four different kinds of thing, and only one of them is

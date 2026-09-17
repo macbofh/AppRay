@@ -36,8 +36,9 @@ Every value copies to the clipboard on click.
 
 The Signature tab answers whether the app will actually run, and keep running:
 
-- **Signature** — verified against every sealed resource in the bundle, strictly,
-  the way Gatekeeper does it. A bundle someone dropped a file into fails here —
+- **Signature** — verified against every sealed resource in the bundle *and*
+  inside every framework, helper and extension in it, strictly, the way
+  Gatekeeper does it. A bundle someone dropped a file into fails here —
   and the app then names every file that changed rather than stopping at the
   verdict: modified, added, missing, and nested code that fails on its own. A
   modified file is shown with the hash the signature sealed beside the hash of

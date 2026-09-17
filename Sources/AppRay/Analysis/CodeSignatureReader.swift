@@ -153,7 +153,13 @@ enum CodeSignatureReader {
     /// Strict validation is deliberate. Without `kSecCSStrictValidate` the
     /// check tolerates files added to the bundle after signing, which is
     /// exactly the tampering an admin wants to hear about — and which
-    /// Gatekeeper rejects anyway. This matches `codesign --verify --strict`.
+    /// Gatekeeper rejects anyway.
+    ///
+    /// `kSecCSCheckNestedCode` is just as deliberate. Without it a helper app,
+    /// framework or extension is only checked against the outer bundle's seal,
+    /// so a file edited *inside* an app extension verifies clean — while
+    /// Gatekeeper rejects the same bundle. Together these two match
+    /// `codesign --verify --deep --strict`, which is what Gatekeeper does.
     ///
     /// Slow on a large bundle — this is the expensive half of the analysis and
     /// belongs on a background task.
@@ -163,7 +169,9 @@ enum CodeSignatureReader {
               let staticCode
         else { return .unsigned }
 
-        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        let flags = SecCSFlags(rawValue:
+            kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode
+        )
         var errors: Unmanaged<CFError>?
         let status = SecStaticCodeCheckValidityWithErrors(staticCode, flags, nil, &errors)
         let detail = errors?.takeRetainedValue() as Error?
