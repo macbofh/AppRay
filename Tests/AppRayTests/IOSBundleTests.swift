@@ -143,6 +143,32 @@ struct IOSBundleTests {
         #expect(app.ddmComposedIdentifier?.contains("{") == false)
     }
 
+    /// The regression Mike hit: every iOS app read as "does not match its
+    /// signature", with nothing under "What changed since signing". These
+    /// bundles seal their contents with an envelope `kSecCSStrictValidate`
+    /// refuses to read, which says nothing about the files.
+    @Test(
+        "An iOS system app with an obsolete envelope is unverifiable, not tampered with",
+        .enabled(if: IOSBundleTests.hasRuntime)
+    )
+    func obsoleteEnvelopeIsNotTampering() throws {
+        let url = try #require(Self.mobileSafari)
+        #expect(CodeSignatureReader.validate(at: url) == .unverifiable(.obsoleteEnvelope))
+    }
+
+    @Test(
+        "Nothing about an unverifiable seal reaches the tamper report",
+        .enabled(if: IOSBundleTests.hasRuntime)
+    )
+    func unverifiableSealHasNothingToReport() async throws {
+        var app = try AppAnalyzer.analyzeSynchronously(url: try #require(Self.mobileSafari))
+        app.trust = await AppAnalyzer.assessTrust(layout: app.info.layout)
+
+        #expect(app.signatureValidity == .unverifiable(.obsoleteEnvelope))
+        // The claim the bug made: tampering, with no finding behind it.
+        #expect(app.tamperReportText == nil)
+    }
+
     @Test("A wrapped iOS app resolves to the bundle inside the wrapper")
     func resolvesAWrapper() throws {
         let manager = FileManager.default

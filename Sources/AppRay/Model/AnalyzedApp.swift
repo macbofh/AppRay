@@ -84,11 +84,57 @@ struct CertificateInfo: Hashable, Sendable, Identifiable {
 
 /// Whether the signature still matches what is on disk.
 enum SignatureValidity: Hashable, Sendable {
+    /// Why macOS never got as far as comparing the files against the seal.
+    ///
+    /// Neither of these is a finding about the bundle's contents. Both are
+    /// facts about the form of the signature, and both leave AppRay with
+    /// nothing to report — which is why they are not `.invalid`.
+    enum Obstacle: Hashable, Sendable {
+        /// Sealed in a resource envelope macOS has stopped evaluating: a
+        /// version 1 envelope, or custom omit rules that let the signer leave
+        /// files out of the seal.
+        case obsoleteEnvelope
+        /// macOS does not recognise the bundle's shape, so no seal is read
+        /// from it at all.
+        case unreadableBundle
+
+        /// The row beside "Signature", in the register of "Not signed".
+        var summary: String {
+            switch self {
+            case .obsoleteEnvelope: "Could not be verified — obsolete resource envelope"
+            case .unreadableBundle: "Could not be verified — unreadable bundle format"
+            }
+        }
+
+        /// The sentence that stops this being read as an accusation.
+        var explanation: String {
+            switch self {
+            case .obsoleteEnvelope:
+                """
+                This bundle seals its contents with an obsolete resource envelope, and \
+                macOS no longer evaluates one — so there is nothing to check the files \
+                against. That is a fact about the age of the signature's format, not \
+                about the files: nothing here says this bundle was modified.
+                """
+            case .unreadableBundle:
+                """
+                macOS does not recognise this bundle's format, so it never reads a seal \
+                from it — there is nothing to check the files against. That is a fact \
+                about the bundle's shape, not about the files: nothing here says this \
+                bundle was modified.
+                """
+            }
+        }
+    }
+
     case valid
     /// The signature is broken, or the bundle was modified after signing. The
     /// report names every file that no longer matches, so the failure is an
     /// explanation rather than a dead end.
     case invalid(reason: String, tamper: TamperReport)
+    /// macOS declined to evaluate the seal. Not a verdict on the bundle either
+    /// way, and never a claim that anything changed.
+    case unverifiable(Obstacle)
     case unsigned
 
     var isValid: Bool { self == .valid }

@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 
 @testable import AppRay
@@ -123,6 +124,70 @@ struct NotarizationStatusTests {
         #expect(NotarizationStatus.notNotarized.isConcern)
         #expect(!NotarizationStatus.notarized.isConcern)
         #expect(!NotarizationStatus.appleSystem.isConcern)
+    }
+}
+
+/// The statuses macOS returns when it never evaluated the seal, as opposed to
+/// when the seal failed. Getting this wrong is what made AppRay report tampering
+/// it had not detected, with nothing under "What changed since signing".
+@Suite("Unverifiable signatures")
+struct UnverifiableSignatureTests {
+    @Test("An obsolete resource envelope is a fact about the format, not the files")
+    func obsoleteEnvelope() {
+        // Strict validation refuses to read either envelope, so neither ever
+        // carries a list of offending files.
+        #expect(CodeSignatureReader.obstacle(for: errSecCSWeakResourceRules) == .obsoleteEnvelope)
+        #expect(CodeSignatureReader.obstacle(for: errSecCSWeakResourceEnvelope) == .obsoleteEnvelope)
+    }
+
+    @Test("A bundle shape macOS will not read has no seal to check")
+    func unreadableBundle() {
+        #expect(CodeSignatureReader.obstacle(for: errSecCSBadBundleFormat) == .unreadableBundle)
+    }
+
+    @Test("A genuine seal failure stays a seal failure")
+    func genuineFailuresAreNotExcused() {
+        // These are the statuses the tamper report is built for. Routing any of
+        // them away from .invalid would lose the findings.
+        for status in [
+            errSecCSBadResource,
+            errSecCSSignatureFailed,
+            errSecCSBadMainExecutable,
+            errSecCSBadNestedCode,
+            errSecCSInfoPlistFailed,
+            errSecCSUnsigned,
+            errSecSuccess,
+        ] {
+            #expect(CodeSignatureReader.obstacle(for: status) == nil, "status \(status)")
+        }
+    }
+
+    @Test("An unverifiable bundle produces no tamper report to paste into a ticket")
+    func noTamperReport() {
+        var app = AnalyzedApp(
+            info: BundleInfo(
+                layout: .macOS(bundleURL: URL(fileURLWithPath: "/Applications/Example.app")),
+                name: "Example",
+                isAgent: false,
+                urlSchemes: [],
+                raw: [:]
+            ),
+            signature: .unreadable,
+            trust: TrustAssessment(
+                gatekeeper: .unknown,
+                signatureValidity: .unverifiable(.obsoleteEnvelope)
+            ),
+            machO: .empty,
+            components: [],
+            findings: []
+        )
+        #expect(app.tamperReportText == nil)
+
+        app.trust = TrustAssessment(
+            gatekeeper: .unknown,
+            signatureValidity: .unverifiable(.unreadableBundle)
+        )
+        #expect(app.tamperReportText == nil)
     }
 }
 

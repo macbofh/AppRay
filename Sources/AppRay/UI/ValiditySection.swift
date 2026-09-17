@@ -17,6 +17,8 @@ struct ValiditySection: View {
                     StatusText("Verified against the bundle contents", tone: .positive)
                 case .invalid(let reason, _):
                     StatusText(reason, tone: .critical)
+                case .unverifiable(let obstacle):
+                    StatusText(obstacle.summary, tone: .caution)
                 case .unsigned:
                     StatusText("Not signed", tone: .critical)
                 case nil:
@@ -109,7 +111,18 @@ struct ValiditySection: View {
 
     /// The one sentence that resolves the most common confusion, shown only
     /// when it actually applies.
+    ///
+    /// A seal macOS declined to evaluate answers first, because "could not be
+    /// verified" is the line on this screen most likely to be read as a
+    /// verdict. The standing footnote still follows it.
     private var footnote: String {
+        guard case .unverifiable(let obstacle) = app.trust?.signatureValidity else {
+            return standingFootnote
+        }
+        return obstacle.explanation + "\n\n" + standingFootnote
+    }
+
+    private var standingFootnote: String {
         // Notarization, stapling and Gatekeeper are the confusions worth
         // resolving on a Mac. An iOS app has been through none of the three,
         // so a sentence about them would be the wrong answer to a question
