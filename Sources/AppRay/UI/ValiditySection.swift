@@ -110,6 +110,18 @@ struct ValiditySection: View {
     /// The one sentence that resolves the most common confusion, shown only
     /// when it actually applies.
     private var footnote: String {
+        // Notarization, stapling and Gatekeeper are the confusions worth
+        // resolving on a Mac. An iOS app has been through none of the three,
+        // so a sentence about them would be the wrong answer to a question
+        // nobody asked.
+        guard app.info.platform == .macOS else {
+            return """
+            Notarization, the stapled ticket and the Gatekeeper verdict are macOS \
+            mechanisms. An iOS app goes through App Review instead, and none of the \
+            three says anything about this one.
+            """
+        }
+
         guard let validity = app.signature.leafCertificate?.validity else {
             return "A missing stapled ticket is not proof of anything — macOS can still check notarization online."
         }

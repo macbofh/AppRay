@@ -151,11 +151,11 @@ struct ExportSheet: View {
         plan.omissions(in: channel)
     }
 
-    /// Both outputs identify the app by its designated requirement and CDHash,
-    /// and both of those come out of the signature rather than off the disk. If
-    /// the bundle no longer matches that signature, the profile describes the
-    /// app the developer shipped and not the copy in front of you — which
-    /// belongs here, next to everything else the output cannot carry.
+    /// Both outputs identify the app by its designated requirement, and that
+    /// comes out of the signature rather than off the disk. If the bundle no
+    /// longer matches that signature, the profile describes the app the
+    /// developer shipped and not the copy in front of you — which belongs
+    /// here, next to everything else the output cannot carry.
     private var signatureWarning: [String]? {
         guard case .invalid(let reason, let tamper) = app.trust?.signatureValidity else { return nil }
 
@@ -180,8 +180,8 @@ struct ExportSheet: View {
         } else {
             lines.append(
                 """
-                The designated requirement and CDHash baked into this output were read from the \
-                signature, not from the files on disk. They still describe the app as its \
+                The designated requirement baked into this output was read from the \
+                signature, not from the files on disk. It still describes the app as its \
                 developer signed it, not this copy.
                 """
             )
