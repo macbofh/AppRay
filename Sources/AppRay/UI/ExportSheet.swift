@@ -110,9 +110,14 @@ struct ExportSheet: View {
             // Three answers, narrowing: can this bundle be trusted at all,
             // will this channel reach the device, and what did it drop.
             if let warning = signatureWarning {
-                SignatureNotice(lines: warning)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                SignatureNotice(
+                    title: warning.title,
+                    symbolName: warning.symbolName,
+                    tone: warning.tone,
+                    lines: warning.lines
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
             }
 
             if let caveat = channel.caveat(for: app.info.platform) {
@@ -153,40 +158,64 @@ struct ExportSheet: View {
 
     /// Both outputs identify the app by its designated requirement, and that
     /// comes out of the signature rather than off the disk. If the bundle no
-    /// longer matches that signature, the profile describes the app the
-    /// developer shipped and not the copy in front of you — which belongs
-    /// here, next to everything else the output cannot carry.
-    private var signatureWarning: [String]? {
-        guard case .invalid(let reason, let tamper) = app.trust?.signatureValidity else { return nil }
-
-        var lines = [reason]
-        if !tamper.isEmpty {
-            let count = tamper.findings.count
-            lines.append(
-                "\(count) \(count == 1 ? "file does" : "files do") not match — see the Signature tab."
-            )
-        }
+    /// longer matches that signature — or if macOS never checked whether it
+    /// does — the profile describes the app the developer shipped and not
+    /// necessarily the copy in front of you, which belongs here, next to
+    /// everything else the output cannot carry.
+    private var signatureWarning:
+        (title: String, symbolName: String, tone: Badge.Tone, lines: [String])? {
         // An iOS declaration is keyed by the bundle identifier alone, so there
         // is no requirement in it to have gone stale — and that is the worse
         // news, not the better one. The notice below says how it is keyed;
         // this says what that costs, without saying it twice.
-        if channel == .ddm, app.info.platform == .iOS {
+        let keyedWithoutARequirement = channel == .ddm && app.info.platform == .iOS
+
+        switch app.trust?.signatureValidity {
+        case .invalid(let reason, let tamper):
+            var lines = [reason]
+            if !tamper.isEmpty {
+                let count = tamper.findings.count
+                lines.append(
+                    "\(count) \(count == 1 ? "file does" : "files do") not match — see the Signature tab."
+                )
+            }
             lines.append(
-                """
-                This declaration carries no designated requirement that could have gone \
-                stale — and nothing else in it tells the developer's build from this copy.
-                """
+                keyedWithoutARequirement
+                    ? """
+                    This declaration carries no designated requirement that could have gone \
+                    stale — and nothing else in it tells the developer's build from this copy.
+                    """
+                    : """
+                    The designated requirement baked into this output was read from the \
+                    signature, not from the files on disk. It still describes the app as its \
+                    developer signed it, not this copy.
+                    """
             )
-        } else {
-            lines.append(
-                """
-                The designated requirement baked into this output was read from the \
-                signature, not from the files on disk. It still describes the app as its \
-                developer signed it, not this copy.
-                """
+            return ("This bundle does not match its signature", "xmark.seal", .critical, lines)
+
+        case .unverifiable(let obstacle):
+            return (
+                "This bundle's signature could not be verified",
+                "seal",
+                .caution,
+                [
+                    obstacle.explanation,
+                    keyedWithoutARequirement
+                        ? """
+                        This declaration carries no designated requirement anyway — nothing in \
+                        it tells the developer's build from this copy.
+                        """
+                        : """
+                        The designated requirement baked into this output was read from the \
+                        signature, not from the files on disk. Whether this copy still matches \
+                        it is exactly what could not be checked.
+                        """,
+                ]
             )
+
+        case .valid, .unsigned, nil:
+            return nil
         }
-        return lines
     }
 
     // MARK: - Bottom
@@ -294,11 +323,14 @@ private struct DecisionRow: View {
 }
 
 private struct SignatureNotice: View {
+    var title: String
+    var symbolName: String
+    var tone: Badge.Tone
     var lines: [String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("This bundle does not match its signature", systemImage: "xmark.seal")
+            Label(title, systemImage: symbolName)
                 .font(.caption.weight(.medium))
 
             ForEach(lines, id: \.self) { line in
@@ -310,7 +342,7 @@ private struct SignatureNotice: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(.red.opacity(0.12), in: .rect(cornerRadius: 8))
+        .background(tone.color.opacity(0.12), in: .rect(cornerRadius: 8))
     }
 }
 

@@ -165,9 +165,13 @@ enum CodeSignatureReader {
     /// belongs on a background task.
     static func validate(at url: URL) -> SignatureValidity {
         var staticCode: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode) == errSecSuccess,
-              let staticCode
-        else { return .unsigned }
+        let createStatus = SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode)
+        guard createStatus == errSecSuccess, let staticCode else {
+            // A bundle shape macOS will not read never produces a code object,
+            // so there is no seal to check — which is not the same as there
+            // being no signature.
+            return obstacle(for: createStatus).map(SignatureValidity.unverifiable) ?? .unsigned
+        }
 
         let flags = SecCSFlags(rawValue:
             kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode
@@ -182,6 +186,7 @@ enum CodeSignatureReader {
         case errSecCSUnsigned:
             return .unsigned
         default:
+            if let obstacle = obstacle(for: status) { return .unverifiable(obstacle) }
             // The OSStatus message is the sentence codesign prints ("a sealed
             // resource is missing or invalid"). The CFError's own
             // localizedDescription is only the number, so it is no use here —
@@ -193,6 +198,24 @@ enum CodeSignatureReader {
                     findings: tamperFindings(from: detail, status: status, bundleURL: url)
                 )
             )
+        }
+    }
+
+    /// The statuses that say macOS never evaluated the seal, rather than that
+    /// the seal failed — so they carry no list of offending files and must not
+    /// be reported as tampering.
+    ///
+    /// `kSecCSStrictValidate` is what surfaces the two weak-envelope statuses:
+    /// without it an obsolete envelope is accepted on its own terms, and with
+    /// it macOS refuses to read one at all. `errSecCSBadBundleFormat` comes
+    /// out of `SecStaticCodeCreateWithPath` rather than the check itself.
+    /// `nil` for everything else, which keeps genuine seal failures on their
+    /// existing path.
+    static func obstacle(for status: OSStatus) -> SignatureValidity.Obstacle? {
+        switch status {
+        case errSecCSWeakResourceRules, errSecCSWeakResourceEnvelope: .obsoleteEnvelope
+        case errSecCSBadBundleFormat: .unreadableBundle
+        default: nil
         }
     }
 

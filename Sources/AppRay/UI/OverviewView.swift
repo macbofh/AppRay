@@ -172,6 +172,10 @@ struct OverviewView: View {
         switch app.trust?.signatureValidity {
         case .invalid:
             Badge(text: "Signature invalid", symbolName: "xmark.seal", tone: .critical)
+        case .unverifiable:
+            // Amber, not red: macOS declined to check this seal, which is not
+            // the same as the seal having failed.
+            Badge(text: "Signature unverifiable", symbolName: "seal", tone: .caution)
         case .unsigned:
             Badge(text: "Unsigned", symbolName: "exclamationmark.triangle", tone: .critical)
         case .valid, nil:
