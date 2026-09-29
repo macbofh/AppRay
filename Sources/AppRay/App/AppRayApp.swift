@@ -57,7 +57,7 @@ struct AppRayApp: App {
 
                 Divider()
 
-                Button("Show Collected List…") { model.isShowingCollectionList = true }
+                Button("Show Favorites…") { model.isShowingCollectionList = true }
                     .keyboardShortcut("l")
             }
             CommandGroup(after: .pasteboard) {

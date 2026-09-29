@@ -10,18 +10,23 @@ struct CollectionListView: View {
         VStack(spacing: 0) {
             if model.collectedEntries.isEmpty {
                 ContentUnavailableView(
-                    "Nothing collected yet",
+                    "No favorites yet",
                     systemImage: "list.bullet.rectangle.portrait",
                     description: Text(
-                        "Add an analysed app or an App Store lookup result to build a list, then export it to CSV."
+                        "Add an analysed app or an App Store lookup result to build your favorites, then export it to CSV."
                     )
                 )
                 .frame(maxHeight: .infinity)
             } else {
                 Table(model.collectedEntries) {
-                    TableColumn("Name", value: \.name)
+                    TableColumn("Name") { entry in
+                        Button(entry.name) { model.open(entry) }
+                            .buttonStyle(.plain)
+                            .help("Open \(entry.name)'s details")
+                    }
                     TableColumn("Bundle Identifier") { Text($0.bundleIdentifier ?? "—") }
                     TableColumn("Platform", value: \.platform)
+                    TableColumn("Version") { Text($0.version ?? "—") }
                     TableColumn("Developer") { Text($0.developerName ?? "—") }
                     TableColumn("Team Identifier") { Text($0.teamIdentifier ?? "—") }
                     TableColumn("CD Hash") {
@@ -42,10 +47,22 @@ struct CollectionListView: View {
             Divider()
             HStack {
                 Button("Close", role: .cancel) { dismiss() }
+                    .disabled(model.isExportingCSV)
                 Spacer()
-                Button("Export CSV…") { model.exportCollectedEntriesAsCSV() }
-                    .buttonStyle(.glassProminent)
-                    .disabled(model.collectedEntries.isEmpty)
+                Button {
+                    Task { await model.exportCollectedEntriesAsCSV() }
+                } label: {
+                    if model.isExportingCSV {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Analysing…")
+                        }
+                    } else {
+                        Text("Export CSV…")
+                    }
+                }
+                .buttonStyle(.glassProminent)
+                .disabled(model.collectedEntries.isEmpty || model.isExportingCSV)
             }
             .padding(12)
         }

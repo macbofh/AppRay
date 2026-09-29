@@ -118,6 +118,38 @@ struct DetailSection<Content: View>: View {
     }
 }
 
+/// The heart used everywhere an app can be favorited — filled and red once
+/// it is, so the same glyph reads as a toggle rather than a one-shot action.
+struct FavoriteButton: View {
+    var isFavorite: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(
+            isFavorite ? "Remove from Favorites" : "Add to Favorites",
+            systemImage: isFavorite ? "heart.fill" : "heart",
+            action: action
+        )
+        .foregroundStyle(isFavorite ? .red : .primary)
+        .help(isFavorite ? "Remove from Favorites" : "Add this app's identifiers to Favorites")
+    }
+}
+
+/// Opens the favorites list. Callers only show this once there is at least
+/// one favorite — the icon stays the standard color, and the red count
+/// badge is what draws the eye.
+struct FavoritesListButton: View {
+    var count: Int
+    var action: () -> Void
+
+    var body: some View {
+        Button("Favorites", systemImage: "heart.text.square", action: action)
+            .badge(count)
+            .help("Review your favorites and export them to CSV (⌘L)")
+    }
+}
+
+
 /// The application's Finder icon, loaded off the main thread.
 struct AppIconView: View {
     var url: URL
@@ -150,12 +182,28 @@ struct RemoteIconView: View {
     var url: URL?
     var size: CGFloat = 128
 
+    /// A Finder icon's visible squircle fills about 82.5% of its reported
+    /// size — the rest is transparent margin macOS leaves for shadows and
+    /// hover effects. Catalog artwork has no such margin, so without
+    /// matching it here, every App Store row looks a size larger than the
+    /// installed-app rows next to it.
+    private static let glyphScale: CGFloat = 0.825
+
     var body: some View {
+        let glyphSize = size * Self.glyphScale
+
         AsyncImage(url: url) { phase in
             if let image = phase.image {
                 image
                     .resizable()
                     .interpolation(.high)
+                    .frame(width: glyphSize, height: glyphSize)
+                    // Apple's catalog artwork is a flat square with a soft
+                    // glow baked in past where the icon's own squircle
+                    // boundary ends — without this clip that glow shows as a
+                    // mismatched halo instead of the transparent corners a
+                    // real app icon has.
+                    .clipShape(RoundedRectangle(cornerRadius: glyphSize * 0.2237, style: .continuous))
             } else {
                 RoundedRectangle(cornerRadius: size * 0.2)
                     .fill(.quaternary)

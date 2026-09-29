@@ -185,22 +185,28 @@ struct AppStoreResultDetailView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                HStack(spacing: 6) {
-                    Badge(text: "App Store lookup", symbolName: "bag", tone: .neutral)
-                    Badge(text: result.platform.label, symbolName: "macwindow", tone: .neutral)
-                    if result.isVppDeviceBasedLicensingEnabled == true {
-                        Badge(text: "VPP device-based", symbolName: "checkmark.seal", tone: .positive)
-                    }
-                }
-                .padding(.top, 2)
+                badges
+                    .padding(.top, 2)
             }
             Spacer(minLength: 0)
+        }
+    }
 
-            Button("Add to List", systemImage: "text.badge.plus") {
-                model.add(.appStore(result: result))
-            }
-            .buttonStyle(.glassProminent)
-            .help("Add this app's identifiers to the collected list")
+    private var badges: some View {
+        // A wrapping row: stacks vertically once the window is too narrow
+        // for the badges to sit side by side.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) { badgeContent }
+            VStack(alignment: .leading, spacing: 6) { badgeContent }
+        }
+    }
+
+    @ViewBuilder
+    private var badgeContent: some View {
+        Badge(text: "App Store lookup", symbolName: "storefront", tone: .neutral)
+        Badge(text: result.platform.label, symbolName: "macwindow", tone: .neutral)
+        if result.isVppDeviceBasedLicensingEnabled == true {
+            Badge(text: "VPP device-based", symbolName: "checkmark.seal", tone: .positive)
         }
     }
 }

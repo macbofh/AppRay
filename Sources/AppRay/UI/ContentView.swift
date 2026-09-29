@@ -6,7 +6,7 @@ struct ContentView: View {
     var body: some View {
         @Bindable var model = model
 
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $model.columnVisibility) {
             SidebarView()
         } detail: {
             DetailView()
@@ -47,8 +47,11 @@ struct ContentView: View {
 /// Always present: the installed-apps browser before an app is picked, the
 /// section list once one is loaded. Picking a different app from either
 /// state works the same way — there is no separate "start over" screen.
+/// Owns the search state and carries `.searchable` — `isSearching` and
+/// `dismissSearch` only exist for views *below* whatever declares that
+/// modifier, so the list that reacts to them has to be a child of this one,
+/// not this same view.
 private struct SidebarView: View {
-    @Environment(InspectorModel.self) private var model
     @State private var localApplications: [LocalApplicationSummary] = []
     @State private var searchText = ""
     @State private var appStoreResults: [AppStoreLookupResult] = []
@@ -58,83 +61,14 @@ private struct SidebarView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var filteredApplications: [LocalApplicationSummary] {
-        guard !searchText.isEmpty else { return localApplications }
-        return localApplications.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-                || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(searchText) ?? false)
-        }
-    }
-
     var body: some View {
-        @Bindable var model = model
-
-        Group {
-            if let app = model.app {
-                List(InspectorModel.Section.allCases, selection: $model.section) { section in
-                    Label(section.title, systemImage: section.symbolName)
-                        .badge(badge(for: section, app: app))
-                        .tag(section)
-                }
-            } else if localApplications.isEmpty {
-                ProgressView("Scanning Applications…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    Section {
-                        Button("Choose App…") { model.chooseApplication() }
-                            .keyboardShortcut("o")
-                    }
-                    Section("Installed Apps") {
-                        ForEach(filteredApplications) { app in
-                            Button {
-                                model.load(app.url)
-                            } label: {
-                                HStack(spacing: 10) {
-                                    AppIconView(url: app.url, size: 28)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(app.name)
-                                        if let bundleIdentifier = app.bundleIdentifier {
-                                            Text(bundleIdentifier)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.vertical, 2)
-                                .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    if !trimmedSearchText.isEmpty {
-                        Section("App Store") {
-                            if isSearchingAppStore {
-                                HStack(spacing: 8) {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                    Text("Searching…")
-                                        .foregroundStyle(.secondary)
-                                }
-                            } else if appStoreResults.isEmpty {
-                                Text("No matches")
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(appStoreResults) { result in
-                                    AppStoreResultRow(result: result) {
-                                        model.selectedAppStoreResult = result
-                                    } addToList: {
-                                        model.add(.appStore(result: result))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                .searchable(text: $searchText, prompt: "Search installed apps or the App Store")
-            }
-        }
+        SidebarList(
+            localApplications: localApplications,
+            searchText: searchText,
+            appStoreResults: appStoreResults,
+            isSearchingAppStore: isSearchingAppStore
+        )
+        .searchable(text: $searchText, prompt: "Search installed apps or the App Store")
         .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 340)
         .task {
             localApplications = await LocalApplicationScanner.scan()
@@ -152,6 +86,101 @@ private struct SidebarView: View {
             appStoreResults = (try? await AppStoreLookupService.search(term: trimmedSearchText)) ?? []
         }
     }
+}
+
+private struct SidebarList: View {
+    @Environment(InspectorModel.self) private var model
+    @Environment(\.isSearching) private var isSearching
+    // `dismissSearch()` ends the search interaction on macOS by clearing the
+    // field along with it, which is exactly the query this screen is meant to
+    // preserve. This flag switches the list back to the loaded app's sections
+    // without touching the search text at all.
+    @State private var isBrowsingSearch = false
+
+    var localApplications: [LocalApplicationSummary]
+    var searchText: String
+    var appStoreResults: [AppStoreLookupResult]
+    var isSearchingAppStore: Bool
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var filteredApplications: [LocalApplicationSummary] {
+        guard !searchText.isEmpty else { return localApplications }
+        return localApplications.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+                || ($0.bundleIdentifier?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
+
+    var body: some View {
+        @Bindable var model = model
+
+        Group {
+            if let app = model.app, !isBrowsingSearch {
+                List(InspectorModel.Section.allCases, selection: $model.section) { section in
+                    Label(section.title, systemImage: section.symbolName)
+                        .badge(badge(for: section, app: app))
+                        .tag(section)
+                }
+            } else if localApplications.isEmpty {
+                ProgressView("Scanning Applications…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    Section("Installed Apps") {
+                        ForEach(filteredApplications) { app in
+                            LocalApplicationRow(
+                                app: app,
+                                isFavorite: model.isFavorite(.local(summary: app))
+                            ) {
+                                isBrowsingSearch = false
+                                model.load(app.url)
+                            } toggleFavorite: {
+                                model.toggleFavorite(.local(summary: app))
+                            }
+                        }
+                    }
+                    if !trimmedSearchText.isEmpty {
+                        Section("App Store") {
+                            if isSearchingAppStore {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Searching…")
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else if appStoreResults.isEmpty {
+                                Text("No matches")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(appStoreResults) { result in
+                                    AppStoreResultRow(
+                                        result: result,
+                                        isFavorite: model.isFavorite(.appStore(result: result))
+                                    ) {
+                                        isBrowsingSearch = false
+                                        model.selectedAppStoreResult = result
+                                    } toggleFavorite: {
+                                        model.toggleFavorite(.appStore(result: result))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .onChange(of: isSearching) { _, isSearching in
+            if isSearching {
+                isBrowsingSearch = true
+                // A search that starts behind a hidden sidebar has nowhere to
+                // show its results.
+                model.columnVisibility = .all
+            }
+        }
+    }
 
     private func badge(for section: InspectorModel.Section, app: AnalyzedApp) -> Int {
         switch section {
@@ -164,8 +193,9 @@ private struct SidebarView: View {
 
 private struct AppStoreResultRow: View {
     var result: AppStoreLookupResult
+    var isFavorite: Bool
     var select: () -> Void
-    var addToList: () -> Void
+    var toggleFavorite: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -177,12 +207,39 @@ private struct AppStoreResultRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Add to List", systemImage: "plus.circle") {
-                addToList()
+            FavoriteButton(isFavorite: isFavorite, action: toggleFavorite)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 2)
+        .contentShape(.rect)
+        .onTapGesture {
+            select()
+        }
+    }
+}
+
+private struct LocalApplicationRow: View {
+    var app: LocalApplicationSummary
+    var isFavorite: Bool
+    var select: () -> Void
+    var toggleFavorite: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AppIconView(url: app.url, size: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(app.name)
+                if let bundleIdentifier = app.bundleIdentifier {
+                    Text(bundleIdentifier)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .help("Add to List")
+            Spacer()
+            FavoriteButton(isFavorite: isFavorite, action: toggleFavorite)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
         }
         .padding(.vertical, 2)
         .contentShape(.rect)
@@ -224,8 +281,6 @@ private struct LoadedDetailView: View {
 
     var body: some View {
         content
-            .navigationTitle(app.info.name)
-            .navigationSubtitle(app.info.bundleIdentifier ?? "No bundle identifier")
             .toolbar { toolbar }
     }
 
@@ -247,38 +302,29 @@ private struct LoadedDetailView: View {
             }
             .help("Close this app and analyse another (⇧⌘W)")
         }
-        ToolbarItem(placement: .navigation) {
-            AppIconView(url: app.info.url, size: 20)
-                .contextMenu {
-                    Button("Export Icon as PNG…") { model.exportIcon() }
-                }
-        }
-        .sharedBackgroundVisibility(.hidden)
         ToolbarSpacer(.flexible)
         ToolbarItem {
-            Button("Reveal in Finder", systemImage: "folder") {
+            Button("Reveal in Finder", systemImage: "finder") {
                 model.revealInFinder()
             }
             .help("Reveal the bundle in Finder (⌘R)")
         }
         ToolbarItem {
-            Button("Add to List", systemImage: "text.badge.plus") {
-                model.add(.local(app: app))
+            FavoriteButton(isFavorite: model.isFavorite(.local(app: app))) {
+                model.toggleFavorite(.local(app: app))
             }
-            .help("Add this app's identifiers to the collected list")
         }
-        ToolbarItem {
-            Button("List", systemImage: "list.bullet.rectangle.portrait") {
-                model.isShowingCollectionList = true
+        if !model.collectedEntries.isEmpty {
+            ToolbarItem {
+                FavoritesListButton(count: model.collectedEntries.count) {
+                    model.isShowingCollectionList = true
+                }
             }
-            .badge(model.collectedEntries.count)
-            .help("Review the collected list and export it to CSV (⌘L)")
         }
         ToolbarItem {
             Button("Export…", systemImage: "square.and.arrow.up") {
                 model.isShowingExport = true
             }
-            .buttonStyle(.glassProminent)
             .help("Build a PPPC profile or DDM declaration (⌘E)")
         }
     }
@@ -290,16 +336,30 @@ private struct SelectedAppStoreResultView: View {
 
     var body: some View {
         AppStoreResultDetailView(result: result)
-            .navigationTitle(result.name)
-            .navigationSubtitle(result.bundleIdentifier)
-            .toolbar {
-                ToolbarItem(placement: .navigation) {
-                    Button("Back", systemImage: "chevron.backward") {
-                        model.reset()
-                    }
-                    .help("Back to Installed Apps (⇧⌘W)")
+            .toolbar { toolbar }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button("Back", systemImage: "chevron.backward") {
+                model.reset()
+            }
+            .help("Back to Installed Apps (⇧⌘W)")
+        }
+        ToolbarSpacer(.flexible)
+        ToolbarItem {
+            FavoriteButton(isFavorite: model.isFavorite(.appStore(result: result))) {
+                model.toggleFavorite(.appStore(result: result))
+            }
+        }
+        if !model.collectedEntries.isEmpty {
+            ToolbarItem {
+                FavoritesListButton(count: model.collectedEntries.count) {
+                    model.isShowingCollectionList = true
                 }
             }
+        }
     }
 }
 
@@ -309,20 +369,50 @@ private struct EmptyDetailView: View {
     @Environment(InspectorModel.self) private var model
 
     var body: some View {
-        ContentUnavailableView {
-            Label("Select an app", systemImage: "hand.raised.square.on.square")
-        } description: {
-            Text(
-                """
-                AppRay reads what an application can reach — usage \
-                descriptions, entitlements, linked frameworks — and builds the \
-                PPPC profile or DDM declaration that matches. Pick one from \
-                Installed Apps, or drop a bundle from anywhere else on disk.
-                """
-            )
-        } actions: {
-            Button("List (\(model.collectedEntries.count))") { model.isShowingCollectionList = true }
-                .buttonStyle(.glass)
+        VStack(spacing: 20) {
+            VStack(spacing: 20) {
+                Image("AppRay")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 200, height: 200)
+                    .accessibilityHidden(true)
+
+                VStack(spacing: 8) {
+                    Text("Drag & Drop")
+                        .font(.title2.weight(.semibold))
+                    Text(
+                        """
+                        AppRay reads what an application can reach — usage \
+                        descriptions, entitlements, linked frameworks — and builds the \
+                        PPPC profile or DDM declaration that matches. Drop a bundle \
+                        anywhere in this window, or pick one from Installed Apps.
+                        """
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+                }
+            }
+            .padding(40)
+            .overlay {
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(.tertiary, style: StrokeStyle(lineWidth: 2, dash: [6, 6]))
+            }
+
+            Button("Choose App…") { model.chooseApplication() }
+                .keyboardShortcut("o")
+                .buttonStyle(.glassProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .toolbar {
+            if !model.collectedEntries.isEmpty {
+                ToolbarItem {
+                    FavoritesListButton(count: model.collectedEntries.count) {
+                        model.isShowingCollectionList = true
+                    }
+                }
+            }
         }
     }
 }
