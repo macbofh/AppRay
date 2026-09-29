@@ -144,6 +144,28 @@ struct AppIconView: View {
     }
 }
 
+/// An app icon fetched from a URL — the App Store artwork, for an app that
+/// has no local bundle to read a Finder icon from.
+struct RemoteIconView: View {
+    var url: URL?
+    var size: CGFloat = 128
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            if let image = phase.image {
+                image
+                    .resizable()
+                    .interpolation(.high)
+            } else {
+                RoundedRectangle(cornerRadius: size * 0.2)
+                    .fill(.quaternary)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
 /// An expandable property-list tree, used for entitlements and the raw
 /// `Info.plist`.
 struct PlistTree: View {

@@ -41,10 +41,28 @@ struct SignatureView: View {
                     TamperSection(app: app, report: tamper)
                 }
 
-                DetailSection(title: "Signing details") {
+                DetailSection(
+                    title: "Signing details",
+                    footnote: """
+                    Path prefix and signing state are the extra identifiers a Denied Software \
+                    Rule or a binary allow-list needs beyond CDHash, Team ID, and Signing ID.
+                    """
+                ) {
                     CopyableRow(label: "Team identifier", value: app.signature.teamIdentifier)
                     Divider()
                     CopyableRow(label: "Signing identifier", value: app.signature.signingIdentifier)
+                    Divider()
+                    CopyableRow(label: "Path prefix", value: app.pathPrefix, isMonospaced: true)
+                    Divider()
+                    LabeledContent("Signing state") {
+                        Text(app.signingState.rawValue)
+                            .foregroundStyle(signingStateColor)
+                    }
+                    Divider()
+                    CopyableRow(
+                        label: "Architectures",
+                        value: app.machO.architectures.isEmpty ? nil : app.machO.architectures.joined(separator: ", ")
+                    )
                     Divider()
                     LabeledContent("Hardened runtime") {
                         Text(app.signature.hasHardenedRuntime ? "Enabled" : "Not enabled")
@@ -104,6 +122,14 @@ struct SignatureView: View {
             .padding(24)
             .frame(maxWidth: 780, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var signingStateColor: Color {
+        switch app.signingState {
+        case .signed: .primary
+        case .adHocSigned, .unverifiable, .pending: .secondary
+        case .unsigned, .invalid: .orange
         }
     }
 

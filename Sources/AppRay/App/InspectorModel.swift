@@ -45,6 +45,9 @@ final class InspectorModel {
     var section: Section = .overview
     var selectedFinding: PrivilegeFinding.ID?
     var isShowingExport = false
+    var isShowingCollectionList = false
+    var selectedAppStoreResult: AppStoreLookupResult?
+    private(set) var collectedEntries: [CollectedEntry] = []
     private(set) var toast: String?
 
     private var toastTask: Task<Void, Never>?
@@ -65,6 +68,7 @@ final class InspectorModel {
         let resolved = (try? URL(resolvingAliasFileAt: url)) ?? url.resolvingSymlinksInPath()
         phase = .analyzing(resolved)
         selectedFinding = nil
+        selectedAppStoreResult = nil
         section = .overview
 
         Task {
@@ -104,6 +108,7 @@ final class InspectorModel {
     func reset() {
         phase = .empty
         selectedFinding = nil
+        selectedAppStoreResult = nil
     }
 
     func revealInFinder() {
@@ -131,6 +136,28 @@ final class InspectorModel {
             show(toast: "Saved \(destination.lastPathComponent)")
         } catch {
             show(toast: "Could not save: \(error.localizedDescription)")
+        }
+    }
+
+    /// Saves an App Store icon — downloaded from Apple's catalog, since
+    /// there is no local bundle to render one from.
+    func exportRemoteIcon(from url: URL, suggestedName: String) {
+        let cleaned = suggestedName.replacingOccurrences(of: "/", with: "-")
+        let fileExtension = url.pathExtension.isEmpty ? "png" : url.pathExtension
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(cleaned)-icon.\(fileExtension)"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .png]
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                try data.write(to: destination)
+                show(toast: "Saved \(destination.lastPathComponent)")
+            } catch {
+                show(toast: "Could not save: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -174,5 +201,35 @@ final class InspectorModel {
         let base = app?.info.name ?? "App"
         let cleaned = base.replacingOccurrences(of: "/", with: "-")
         return "\(cleaned)-\(channel == .pppc ? "pppc" : "ddm")"
+    }
+
+    // MARK: - Collected list
+
+    func add(_ entry: CollectedEntry) {
+        guard !collectedEntries.contains(where: { $0.id == entry.id }) else {
+            show(toast: "Already on the list")
+            return
+        }
+        collectedEntries.append(entry)
+        show(toast: "Added to list")
+    }
+
+    func remove(_ entry: CollectedEntry) {
+        collectedEntries.removeAll { $0.id == entry.id }
+    }
+
+    func exportCollectedEntriesAsCSV() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "AppRay-list.csv"
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try CSVExportBuilder.build(entries: collectedEntries).write(to: url, atomically: true, encoding: .utf8)
+            show(toast: "Saved \(url.lastPathComponent)")
+        } catch {
+            show(toast: "Could not save: \(error.localizedDescription)")
+        }
     }
 }
