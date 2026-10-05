@@ -18,14 +18,14 @@ struct ExportSheet: View {
         VStack(spacing: 0) {
             HSplitView {
                 configuration
-                    .frame(minWidth: 330, idealWidth: 430)
+                    .frame(minWidth: 330, idealWidth: 430, maxWidth: 480)
                 preview
-                    .frame(minWidth: 330)
+                    .frame(minWidth: 420, idealWidth: 1_020)
             }
             Divider()
             actionBar
         }
-        .frame(minWidth: 680, idealWidth: 1_000, minHeight: 520, idealHeight: 660)
+        .frame(minWidth: 1_000, idealWidth: 1_540, minHeight: 620, idealHeight: 820)
     }
 
     // MARK: - Left: what to include

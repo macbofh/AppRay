@@ -131,12 +131,11 @@ struct OverviewView: View {
     }
 
     private var badges: some View {
-        // A wrapping row: the badge count varies a lot between apps.
+        // A wrapping row: the badge count varies a lot between apps, and
+        // stacks vertically once there is no room for a single line.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) { badgeContent }
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) { badgeContent }
-            }
+            VStack(alignment: .leading, spacing: 6) { badgeContent }
         }
     }
 

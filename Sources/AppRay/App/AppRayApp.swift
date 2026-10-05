@@ -43,7 +43,7 @@ struct AppRayApp: App {
             CommandGroup(after: .newItem) {
                 Button("Close App") { model.reset() }
                     .keyboardShortcut("w", modifiers: [.command, .shift])
-                    .disabled(model.app == nil)
+                    .disabled(model.app == nil && model.selectedAppStoreResult == nil)
 
                 Divider()
 
@@ -54,6 +54,11 @@ struct AppRayApp: App {
                 Button("Reveal in Finder") { model.revealInFinder() }
                     .keyboardShortcut("r")
                     .disabled(model.app == nil)
+
+                Divider()
+
+                Button("Show Favorites…") { model.isShowingCollectionList = true }
+                    .keyboardShortcut("l")
             }
             CommandGroup(after: .pasteboard) {
                 Button("Copy Designated Requirement") {

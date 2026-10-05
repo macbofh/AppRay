@@ -435,4 +435,36 @@ struct AnalyzedApp: Hashable, Sendable, Identifiable {
             }
             .filter { !$0.1.isEmpty }
     }
+
+    /// The directory holding the main executable — what a path-based binary
+    /// rule (an MDM's Denied Software Rule, for instance) matches against,
+    /// since every copy of this app puts its binary at the same place inside
+    /// the bundle.
+    var pathPrefix: String { info.layout.executableDirectoryURL.path(percentEncoded: false) }
+
+    /// A coarse read of what Security.framework and Gatekeeper agree on.
+    /// Not one API's answer — synthesised from `signature` and `trust` the
+    /// same way an admin would read the two side by side.
+    enum SigningState: String, Sendable {
+        case unsigned = "Not signed"
+        case adHocSigned = "Ad-hoc signed"
+        case signed = "Signed"
+        case invalid = "Invalid signature"
+        case unverifiable = "Signature unverifiable"
+        /// `trust` has not landed yet — phase 2 is still running.
+        case pending = "Verifying…"
+    }
+
+    var signingState: SigningState {
+        guard signature.isSigned else { return .unsigned }
+        guard let validity: SignatureValidity = trust?.signatureValidity else {
+            return signature.isAdHoc ? .adHocSigned : .pending
+        }
+        switch validity {
+        case .invalid: return .invalid
+        case .unverifiable: return .unverifiable
+        case .unsigned: return .unsigned
+        case .valid: return signature.isAdHoc ? .adHocSigned : .signed
+        }
+    }
 }
